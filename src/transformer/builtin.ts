@@ -235,15 +235,15 @@ GraphicalTransformer.register("LineTransformer", {
     style: {},
   },
   redraw({ layer, transformer }) {
-    const mainLayer = layer.getLayerFromQueue("mainLayer");
-    const orientation = transformer.getSharedVar("orientation");
-    const style = transformer.getSharedVar("style");
-    const x = transformer.getSharedVar("x");
-    const y = transformer.getSharedVar("y");
-    const tooltipConfig = transformer.getSharedVar("tooltip");
-    const scaleX = transformer.getSharedVar("scaleX");
-    const scaleY = transformer.getSharedVar("scaleY");
-    const result = transformer.getSharedVar("result");
+        const mainLayer = layer.getLayerFromQueue("mainLayer");
+        const orientation = transformer.getSharedVar("orientation");
+        const style = transformer.getSharedVar("style");
+        const x = transformer.getSharedVar("offsetx") ? transformer.getSharedVar("offsetx") : transformer.getSharedVar("x");
+        const y = transformer.getSharedVar("offsety") ? transformer.getSharedVar("offsety") : transformer.getSharedVar("y");
+        const tooltipConfig = transformer.getSharedVar("tooltip");
+        const scaleX = transformer.getSharedVar("scaleX");
+        const scaleY = transformer.getSharedVar("scaleY");
+        const result = transformer.getSharedVar("result");
     if (
       result &&
       result.slope !== undefined &&

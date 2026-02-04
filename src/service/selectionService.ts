@@ -30,27 +30,27 @@ export default class SelectionService extends Service {
       ...(this._userOptions?.query?.attrName
         ? typeof this._userOptions.query.attrName === "string"
           ? {
-              [this._userOptions.query.attrName]:
-                this._userOptions?.query?.extent ?? [],
-            }
+            [this._userOptions.query.attrName]:
+              this._userOptions?.query?.extent ?? [],
+          }
           : Object.fromEntries(
-              this._userOptions.query.attrName.map((attr, i) => [
-                attr,
-                this._userOptions?.query?.extent?.[i] ?? [],
-              ])
-            )
+            this._userOptions.query.attrName.map((attr, i) => [
+              attr,
+              this._userOptions?.query?.extent?.[i] ?? [],
+            ])
+          )
         : {}),
       ...(this._sharedVar?.attrName
         ? typeof this._sharedVar.attrName === "string"
           ? {
-              [this._sharedVar.attrName]: this._sharedVar?.extent ?? [],
-            }
+            [this._sharedVar.attrName]: this._sharedVar?.extent ?? [],
+          }
           : Object.fromEntries(
-              this._sharedVar.attrName.map((attr, i) => [
-                attr,
-                this._sharedVar?.extent?.[i] ?? [],
-              ])
-            )
+            this._sharedVar.attrName.map((attr, i) => [
+              attr,
+              this._sharedVar?.extent?.[i] ?? [],
+            ])
+          )
         : {}),
     })
       .filter(([_, v]) => v instanceof Array)
@@ -163,6 +163,7 @@ export default class SelectionService extends Service {
       });
       this._services.forEach((service) => {
         service.setSharedVars({
+          name: this._baseName,
           ...this._sharedVar,
           [this._resultAlias]: resultNodes,
         });
@@ -180,14 +181,15 @@ export default class SelectionService extends Service {
         .filter((t) => !t.isInstanceOf("draw-shape"))
         .forEach((transformer) => {
           transformer.setSharedVars({
+            name: this._baseName,
             ...this._sharedVar,
             x: this._sharedVar.offsetx ?? this._sharedVar.x,
             y: this._sharedVar.offsety ?? this._sharedVar.y,
             layer: layer.getLayerFromQueue("selectionLayer"),
             [this._resultAlias]: this._result
               ? this._result.map((node) =>
-                  layer.cloneVisualElements(node, false)
-                )
+                layer.cloneVisualElements(node, false)
+              )
               : [],
           });
         });
@@ -350,7 +352,7 @@ export default class SelectionService extends Service {
       this._selectionMapping.set(
         this._currentDimension[0][0],
         this._currentDimension[0]
-          [1](extent)
+        [1](extent)
           .sort((a, b) =>
             typeof a === "number" ? a - b : a < b ? -1 : a == b ? 0 : 1
           )

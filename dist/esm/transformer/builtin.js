@@ -143,11 +143,11 @@ GraphicalTransformer.register("SelectionTransformer", {
                         d3.select(layer.getGraphic())
                             .append("text")
                             .attr("x", transformer.getSharedVar("x") -
-                            (layer._offset?.x ?? 0) +
-                            (tooltip.offset?.x ?? 0))
+                                (layer._offset?.x ?? 0) +
+                                (tooltip.offset?.x ?? 0))
                             .attr("y", transformer.getSharedVar("y") -
-                            (layer._offset?.y ?? 0) +
-                            (tooltip.offset?.y ?? 0))
+                                (layer._offset?.y ?? 0) +
+                                (tooltip.offset?.y ?? 0))
                             .text(tooltipText);
                     }
                 }
@@ -157,11 +157,11 @@ GraphicalTransformer.register("SelectionTransformer", {
                     d3.select(layer.getGraphic())
                         .append("image")
                         .attr("x", transformer.getSharedVar("x") -
-                        (layer._offset?.x ?? 0) +
-                        (tooltip.offset?.x ?? 0))
+                            (layer._offset?.x ?? 0) +
+                            (tooltip.offset?.x ?? 0))
                         .attr("y", transformer.getSharedVar("y") -
-                        (layer._offset?.y ?? 0) +
-                        (tooltip.offset?.y ?? 0))
+                            (layer._offset?.y ?? 0) +
+                            (tooltip.offset?.y ?? 0))
                         .attr("width", tooltip.width ?? 100)
                         .attr("height", tooltip.height ?? 100)
                         .attr("style", "object-fit: contain")
@@ -174,11 +174,11 @@ GraphicalTransformer.register("SelectionTransformer", {
                             d3.select(layer.getGraphic())
                                 .append("image")
                                 .attr("x", transformer.getSharedVar("x") -
-                                (layer._offset?.x ?? 0) +
-                                (tooltip.offset?.x ?? 0))
+                                    (layer._offset?.x ?? 0) +
+                                    (tooltip.offset?.x ?? 0))
                                 .attr("y", transformer.getSharedVar("y") -
-                                (layer._offset?.y ?? 0) +
-                                (tooltip.offset?.y ?? 0))
+                                    (layer._offset?.y ?? 0) +
+                                    (tooltip.offset?.y ?? 0))
                                 .attr("width", tooltip.width ?? 100)
                                 .attr("height", tooltip.height ?? 100)
                                 .attr("style", "object-fit: contain")
@@ -201,15 +201,27 @@ GraphicalTransformer.register("LineTransformer", {
         style: {},
     },
     redraw({ layer, transformer }) {
+        // console.log("from Transformer", this._sharedVar);
+
         const mainLayer = layer.getLayerFromQueue("mainLayer");
         const orientation = transformer.getSharedVar("orientation");
         const style = transformer.getSharedVar("style");
-        const x = transformer.getSharedVar("x");
-        const y = transformer.getSharedVar("y");
+        const x = transformer.getSharedVar("offsetx") ? transformer.getSharedVar("offsetx") : transformer.getSharedVar("x");
+        const y = transformer.getSharedVar("offsety") ? transformer.getSharedVar("offsety") : transformer.getSharedVar("y");
+        const offsetx = transformer.getSharedVar("offsetx");
+        const offsety = transformer.getSharedVar("offsety");
         const tooltipConfig = transformer.getSharedVar("tooltip");
         const scaleX = transformer.getSharedVar("scaleX");
         const scaleY = transformer.getSharedVar("scaleY");
         const result = transformer.getSharedVar("result");
+        const scaleC = transformer.getSharedVar("scaleColor");
+        const lines = result?.lines ? result.lines : null
+
+
+
+
+
+
         if (result &&
             result.slope !== undefined &&
             result.intercept !== undefined) {
@@ -222,7 +234,7 @@ GraphicalTransformer.register("LineTransformer", {
                 .attr("x2", mainLayer.getGraphic().getBoundingClientRect().width)
                 .attr("y1", result.intercept)
                 .attr("y2", result.slope * mainLayer.getGraphic().getBoundingClientRect().width +
-                result.intercept)
+                    result.intercept)
                 .attr("stroke-width", 1)
                 .attr("stroke", "#000");
             if (style) {
@@ -239,9 +251,11 @@ GraphicalTransformer.register("LineTransformer", {
                 tooltipQueue.push(tooltipConfig.prefix);
             }
             if (scaleX && scaleX.invert && typeof x === "number") {
+                tooltipQueue.push("X");
                 tooltipQueue.push(scaleX.invert(x - (layer._offset?.x ?? 0)));
             }
             if (scaleY && scaleY.invert && typeof y === "number") {
+                tooltipQueue.push("Y");
                 tooltipQueue.push(scaleY.invert(y - (layer._offset?.y ?? 0)));
             }
             if (typeof tooltipConfig === "object" && tooltipConfig.suffix) {
@@ -303,6 +317,8 @@ GraphicalTransformer.register("LineTransformer", {
                 .attr("x", x - (layer._offset?.x ?? 0))
                 .attr("y", y - (layer._offset?.y ?? 0))
                 .text(tooltip);
+            // console.log(x,x - (layer._offset?.x ?? 0), layer._offset?.x);
+
         }
     },
 });
@@ -348,11 +364,11 @@ GraphicalTransformer.register("TextTransformer", {
             .attr("y", displayY)
             .text(displayContent)
             .call((t) => {
-            if (style) {
-                Object.entries(style).forEach(([key, value]) => {
-                    t.style(key, value);
-                });
-            }
-        });
+                if (style) {
+                    Object.entries(style).forEach(([key, value]) => {
+                        t.style(key, value);
+                    });
+                }
+            });
     },
 });

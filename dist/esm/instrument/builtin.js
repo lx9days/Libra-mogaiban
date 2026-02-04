@@ -18,7 +18,20 @@ Instrument.register("HoverInstrument", {
                     y: event.clientY,
                     offsetx: event.offsetX,
                     offsety: event.offsetY,
+                    // scaleX: instrument.getSharedVar("scaleX"),
                 }, { layer });
+                
+                // debugger
+                // console.log("from HoverInstrument",{
+                //     event,
+                //     x: event.clientX,
+                //     y: event.clientY,
+                //     offsetx: event.offsetX,
+                //     offsety: event.offsetY,
+                //     scaleX: instrument.getSharedVar("scaleX"),
+                // });
+                // debugger
+                
                 const transformers = instrument.transformers;
                 transformers.setSharedVars({ cx: event.clientX, cy: event.clientY });
             },
@@ -44,6 +57,7 @@ Instrument.register("HoverInstrument", {
                 highlightColor: instrument.getSharedVar("highlightColor"),
                 highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
                 tooltip: instrument.getSharedVar("tooltip"),
+                data: instrument.getSharedVar("data"),
             },
         });
     },
@@ -335,106 +349,176 @@ Instrument.register("BrushYInstrument", {
             async ({ event, layer, instrument }) => {
                 if (event.changedTouches)
                     event = event.changedTouches[0];
-                const services = instrument.services.find("RectSelectionService");
-                services.setSharedVar("y", event.clientY, { layer });
-                services.setSharedVar("height", 1, { layer });
-                services.setSharedVar("starty", event.clientY, { layer });
-                services.setSharedVar("currenty", event.clientY, { layer });
+                const services = instrument.services;
+                services.setSharedVars({
+                    y: event.clientY,
+                    offsety: event.offsetY,
+                    height: 0,
+                    starty: event.clientY,
+                    startoffsety: event.offsetY,
+                    currenty: event.clientY,
+                }, { layer });
                 instrument.setSharedVar("starty", event.clientY);
-                instrument.transformers
-                    .find("TransientRectangleTransformer")
-                    .setSharedVars({
-                    y: 0,
-                    height: 1,
-                });
+                instrument.setSharedVar("startoffsety", event.offsetY);
             },
         ],
         drag: [
-            Command.initialize("drawBrushAndSelect", {
-                continuous: true,
-                execute: async ({ event, layer, instrument }) => {
-                    if (event.changedTouches)
-                        event = event.changedTouches[0];
-                    const starty = instrument.getSharedVar("starty");
-                    const y = Math.min(starty, event.clientY);
-                    const height = Math.abs(event.clientY - starty);
-                    // selection, currently service use client coordinates, but coordinates relative to the layer maybe more appropriate.
-                    const services = instrument.services.find("SelectionService");
-                    services.setSharedVar("y", y, { layer });
-                    services.setSharedVar("height", height, {
-                        layer,
-                    });
-                    services.setSharedVar("currenty", event.clientY, { layer });
-                    await Promise.all(instrument.services.results);
-                },
-                feedback: [
-                    async ({ event, layer, instrument }) => {
-                        const starty = instrument.getSharedVar("starty");
-                        const y = Math.min(starty, event.clientY);
-                        const height = Math.abs(event.clientY - starty);
-                        // draw brush
-                        const baseBBox = (layer.getGraphic().querySelector(".ig-layer-background") ||
-                            layer.getGraphic()).getBoundingClientRect();
-                        instrument.transformers
-                            .find("TransientRectangleTransformer")
-                            .setSharedVars({
-                            y: y - baseBBox.top,
-                            height: height,
-                        });
-                    },
-                    async ({ instrument }) => {
-                        instrument.transformers.find("HighlightSelection").setSharedVars({
-                            highlightAttrValues: instrument.getSharedVar("highlightAttrValues") || {},
-                        });
-                    },
-                ],
-            }),
-        ],
-        dragabort: [
-            async ({ event, layer, instrument }) => {
+            async (options) => {
+                let { event, layer, instrument } = options;
                 if (event.changedTouches)
                     event = event.changedTouches[0];
-                const services = instrument.services.find("SelectionService");
-                services.setSharedVar("y", 0, { layer });
-                services.setSharedVar("height", 0, { layer });
-                services.setSharedVar("currenty", event.clientY, { layer });
-                services.setSharedVar("endy", event.clientY, { layer });
-                instrument.transformers
-                    .find("TransientRectangleTransformer")
-                    .setSharedVars({
+                const starty = instrument.getSharedVar("starty");
+                const startoffsety = instrument.getSharedVar("startoffsety");
+                const y = Math.min(starty, event.clientY);
+                const offsety = Math.min(startoffsety, event.offsetY);
+                const height = Math.abs(event.clientY - starty);
+                // selection, currently service use client coordinates, but coordinates relative to the layer maybe more appropriate.
+                instrument.services.find("SelectionService").setSharedVars({
+                    y,
+                    offsety,
+                    height,
+                    currenty: event.clientY,
+                }, { layer });
+                instrument.setSharedVar("currenty", event.clientY);
+                instrument.setSharedVar("currentoffsety", event.offsetY);
+                instrument.emit("brush", options);
+            },
+        ],
+        dragend: [Command.initialize("Log", { execute() { } })],
+        dragabort: [
+            async (options) => {
+                let { event, layer, instrument } = options;
+                if (event.changedTouches)
+                    event = event.changedTouches[0];
+                instrument.services.setSharedVars({
                     y: 0,
+                    offsety: 0,
                     height: 0,
-                });
+                    currenty: event.clientY,
+                }, { layer });
+                instrument.emit("brushabort", options);
             },
         ],
     },
     preAttach: (instrument, layer) => {
-        const x = instrument.getSharedVar("x") ?? 0;
-        const width = instrument.getSharedVar("width") ?? layer._width;
-        const services = instrument.services.add("RectSelectionService", { layer });
-        const bbox = layer.getGraphic().getBoundingClientRect();
-        services.setSharedVar("x", bbox.x + x);
-        services.setSharedVar("width", width);
-        instrument.transformers
-            .add("TransientRectangleTransformer", {
-            transient: true,
-            layer: layer.getLayerFromQueue("transientLayer"),
+        instrument.services.add("RectSelectionService", {
+            layer,
             sharedVar: {
-                x: 0,
-                y: 0,
-                width: width,
-                height: 0,
-                fill: "#000",
-                opacity: 0.3,
+                deepClone: instrument.getSharedVar("deepClone"),
+                highlightColor: instrument.getSharedVar("highlightColor"),
+                highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
             },
-        })
-            .add("HighlightSelection", {
-            transient: true,
-            layer: layer.getLayerFromQueue("selectionLayer"),
-            sharedVar: { highlightAttrValues: {} },
         });
     },
 });
+// Instrument.register("BrushYInstrument", {
+//     constructor: Instrument,
+//     interactors: ["MouseTraceInteractor", "TouchTraceInteractor"],
+//     on: {
+//         dragstart: [
+//             async ({ event, layer, instrument }) => {
+//                 if (event.changedTouches)
+//                     event = event.changedTouches[0];
+//                 const services = instrument.services.find("RectSelectionService");
+//                 services.setSharedVar("y", event.clientY, { layer });
+//                 services.setSharedVar("height", 1, { layer });
+//                 services.setSharedVar("starty", event.clientY, { layer });
+//                 services.setSharedVar("currenty", event.clientY, { layer });
+//                 instrument.setSharedVar("starty", event.clientY);
+//                 instrument.transformers
+//                     .find("TransientRectangleTransformer")
+//                     .setSharedVars({
+//                     y: 0,
+//                     height: 1,
+//                 });
+//             },
+//         ],
+//         drag: [
+//             Command.initialize("drawBrushAndSelect", {
+//                 continuous: true,
+//                 execute: async ({ event, layer, instrument }) => {
+//                     if (event.changedTouches)
+//                         event = event.changedTouches[0];
+//                     const starty = instrument.getSharedVar("starty");
+//                     const y = Math.min(starty, event.clientY);
+//                     const height = Math.abs(event.clientY - starty);
+//                     // selection, currently service use client coordinates, but coordinates relative to the layer maybe more appropriate.
+//                     const services = instrument.services.find("SelectionService");
+//                     services.setSharedVar("y", y, { layer });
+//                     services.setSharedVar("height", height, {
+//                         layer,
+//                     });
+//                     services.setSharedVar("currenty", event.clientY, { layer });
+//                     await Promise.all(instrument.services.results);
+//                 },
+//                 feedback: [
+//                     async ({ event, layer, instrument }) => {
+//                         const starty = instrument.getSharedVar("starty");
+//                         const y = Math.min(starty, event.clientY);
+//                         const height = Math.abs(event.clientY - starty);
+//                         // draw brush
+//                         const baseBBox = (layer.getGraphic().querySelector(".ig-layer-background") ||
+//                             layer.getGraphic()).getBoundingClientRect();
+//                         instrument.transformers
+//                             .find("TransientRectangleTransformer")
+//                             .setSharedVars({
+//                             y: y - baseBBox.top,
+//                             height: height,
+//                         });
+//                     },
+//                     async ({ instrument }) => {
+//                         instrument.transformers.find("HighlightSelection").setSharedVars({
+//                             highlightAttrValues: instrument.getSharedVar("highlightAttrValues") || {},
+//                         });
+//                     },
+//                 ],
+//             }),
+//         ],
+//         dragabort: [
+//             async ({ event, layer, instrument }) => {
+//                 if (event.changedTouches)
+//                     event = event.changedTouches[0];
+//                 const services = instrument.services.find("SelectionService");
+//                 services.setSharedVar("y", 0, { layer });
+//                 services.setSharedVar("height", 0, { layer });
+//                 services.setSharedVar("currenty", event.clientY, { layer });
+//                 services.setSharedVar("endy", event.clientY, { layer });
+//                 instrument.transformers
+//                     .find("TransientRectangleTransformer")
+//                     .setSharedVars({
+//                     y: 0,
+//                     height: 0,
+//                 });
+//             },
+//         ],
+//     },
+//     preAttach: (instrument, layer) => {
+//         const x = instrument.getSharedVar("x") ?? 0;
+//         const width = instrument.getSharedVar("width") ?? layer._width;
+//         const services = instrument.services.add("RectSelectionService", { layer });
+//         const bbox = layer.getGraphic().getBoundingClientRect();
+//         services.setSharedVar("x", bbox.x + x);
+//         services.setSharedVar("width", width);
+//         instrument.transformers
+//             .add("TransientRectangleTransformer", {
+//             transient: true,
+//             layer: layer.getLayerFromQueue("transientLayer"),
+//             sharedVar: {
+//                 x: 0,
+//                 y: 0,
+//                 width: width,
+//                 height: 0,
+//                 fill: "#000",
+//                 opacity: 0.3,
+//             },
+//         })
+//             .add("HighlightSelection", {
+//             transient: true,
+//             layer: layer.getLayerFromQueue("selectionLayer"),
+//             sharedVar: { highlightAttrValues: {} },
+//         });
+//     },
+// });
 Instrument.register("HelperLineInstrument", {
     constructor: Instrument,
     sharedVar: { orientation: ["horizontal"] },

@@ -149,6 +149,7 @@ export default class SelectionService extends Service {
         else {
             this._services.forEach((service) => {
                 service.setSharedVars({
+                    name:this._baseName,
                     ...this._sharedVar,
                     [this._resultAlias]: this._result
                         ? this._result.map((node) => layer.cloneVisualElements(node, false))
@@ -159,9 +160,11 @@ export default class SelectionService extends Service {
                 .filter((t) => !t.isInstanceOf("draw-shape"))
                 .forEach((transformer) => {
                 transformer.setSharedVars({
+                    name:this._baseName,
                     ...this._sharedVar,
                     x: this._sharedVar.offsetx ?? this._sharedVar.x,
                     y: this._sharedVar.offsety ?? this._sharedVar.y,
+                    // scaleX: this._sharedVar.scaleX,
                     layer: layer.getLayerFromQueue("selectionLayer"),
                     [this._resultAlias]: this._result
                         ? this._result.map((node) => layer.cloneVisualElements(node, false))
@@ -350,6 +353,16 @@ Service.register("SurfacePointSelectionService", {
         y: 0,
     },
 });
+// Service.register("IntersectionService", {
+//     constructor: SelectionService,
+//     query: {
+//         baseOn: helpers.QueryType.Shape,
+//         type: helpers.ShapeQueryType.SurfacePoint,
+//         x: 0,
+//         y: 0,
+//     },
+
+// });
 Service.register("PointSelectionService", {
     constructor: SelectionService,
     query: {
