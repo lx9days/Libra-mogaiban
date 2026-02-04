@@ -42,17 +42,64 @@ GraphicalTransformer.register("TransientRectangleTransformer", {
   constructor: GraphicalTransformer,
   className: ["draw-shape", "transient-shape", "rectangle-shape"],
   redraw: ({ layer, transformer }) => {
-    d3.select(layer.getGraphic())
+    const selection = d3
+      .select(layer.getGraphic())
       .selectAll(":not(.ig-layer-background)")
       .remove();
-    d3.select(layer.getGraphic())
-      .append("rect")
-      .attr("x", transformer.getSharedVar("x"))
-      .attr("y", transformer.getSharedVar("y"))
-      .attr("width", transformer.getSharedVar("width"))
-      .attr("height", transformer.getSharedVar("height"))
-      .attr("fill", transformer.getSharedVar("fillColor"))
-      .attr("opacity", transformer.getSharedVar("opacity"));
+    const brushStyle = transformer.getSharedVar("brushStyle") || {};
+    const fill =
+      brushStyle.fill ??
+      brushStyle.fillColor ??
+      transformer.getSharedVar("fillColor") ??
+      "#000000";
+    const opacity =
+      brushStyle.opacity ?? transformer.getSharedVar("opacity") ?? 0.3;
+
+    // Draw current selection rectangle
+    const x = transformer.getSharedVar("x");
+    const y = transformer.getSharedVar("y");
+    const width = transformer.getSharedVar("width");
+    const height = transformer.getSharedVar("height");
+    
+    if (width > 0 && height > 0) {
+      const rect = d3
+        .select(layer.getGraphic())
+        .append("rect")
+        .attr("x", x)
+        .attr("y", y)
+        .attr("width", width)
+        .attr("height", height)
+        .attr("fill", fill)
+        .attr("opacity", opacity);
+      Object.entries(brushStyle).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          rect.attr(key, value as string);
+        }
+      });
+    }
+
+    // Draw historical selection rectangles
+    const selectionHistory = transformer.getSharedVar("selectionHistory");
+    if (selectionHistory && Array.isArray(selectionHistory)) {
+      selectionHistory.forEach((histItem) => {
+        if (histItem.width > 0 && histItem.height > 0) {
+          const histRect = d3
+            .select(layer.getGraphic())
+            .append("rect")
+            .attr("x", histItem.offsetx ?? histItem.x)
+            .attr("y", histItem.offsety ?? histItem.y)
+            .attr("width", histItem.width)
+            .attr("height", histItem.height)
+            .attr("fill", fill) // Use same style for consistency, or customize if needed
+            .attr("opacity", opacity);
+          Object.entries(brushStyle).forEach(([key, value]) => {
+            if (value !== undefined && value !== null) {
+              histRect.attr(key, value as string);
+            }
+          });
+        }
+      });
+    }
   },
 });
 
@@ -62,7 +109,6 @@ GraphicalTransformer.register("SelectionTransformer", {
     transformer.getSharedVar("result")?.forEach((resultNode) => {
       layer.getGraphic().appendChild(resultNode);
     });
-
     const highlightColor = transformer.getSharedVar("highlightColor");
     const attrValueEntries = Object.entries(
       transformer.getSharedVar("highlightAttrValues") || {}
@@ -75,7 +121,11 @@ GraphicalTransformer.register("SelectionTransformer", {
       }
 
       attrValueEntries.forEach(([key, value]) => {
-        elems.attr(key, value as string);
+        if (key === "fill" || key === "stroke") {
+          elems.style(key, value as string);
+        } else {
+          elems.attr(key, value as string);
+        }
       });
     }
     const tooltip = transformer.getSharedVar("tooltip");

@@ -74,7 +74,7 @@ export default class Interactor {
                 .concat(["contextmenu"])),
         ];
     }
-    async dispatch(event, layer) {
+    async dispatch(event, layer, pickingResult) {
         const moveAction = this._actions.find((action) => {
             const events = action.eventStreams.map((es) => es.type);
             let inculdeEvent = false;
@@ -129,6 +129,7 @@ export default class Interactor {
                             instrument: null,
                             interactor: this,
                             event,
+                            pickingResult
                         });
                     }
                     catch (e) {

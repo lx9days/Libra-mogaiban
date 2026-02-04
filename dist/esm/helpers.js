@@ -1,4 +1,7 @@
 export const LibraSymbol = Symbol("Libra");
+export const globalConfig = {
+    debug: true
+};
 export var QueryType;
 (function (QueryType) {
     QueryType[QueryType["Shape"] = 0] = "Shape";
@@ -348,3 +351,23 @@ export const global = {
 import("./history").then((HM) => {
     tryRegisterDynamicInstance = HM.tryRegisterDynamicInstance;
 });
+export function checkModifier(event, modifier) {
+    if (!modifier)
+        return true;
+    if (!(event instanceof MouseEvent))
+        return true;
+    switch (modifier.toLowerCase()) {
+        case "ctrl":
+            return event.ctrlKey;
+        case "shift":
+            return event.shiftKey;
+        case "alt":
+            return event.altKey;
+        case "meta":
+        case "cmd":
+        case "command":
+            return event.metaKey;
+        default:
+            return true;
+    }
+}

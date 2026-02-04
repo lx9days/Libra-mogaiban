@@ -4665,8 +4665,35 @@ var init_builtin = __esm({
       constructor: GraphicalTransformer,
       className: ["draw-shape", "transient-shape", "rectangle-shape"],
       redraw: ({ layer, transformer }) => {
-        select_default2(layer.getGraphic()).selectAll(":not(.ig-layer-background)").remove();
-        select_default2(layer.getGraphic()).append("rect").attr("x", transformer.getSharedVar("x")).attr("y", transformer.getSharedVar("y")).attr("width", transformer.getSharedVar("width")).attr("height", transformer.getSharedVar("height")).attr("fill", transformer.getSharedVar("fillColor")).attr("opacity", transformer.getSharedVar("opacity"));
+        const selection2 = select_default2(layer.getGraphic()).selectAll(":not(.ig-layer-background)").remove();
+        const brushStyle = transformer.getSharedVar("brushStyle") || {};
+        const fill = brushStyle.fill ?? brushStyle.fillColor ?? transformer.getSharedVar("fillColor") ?? "#000000";
+        const opacity = brushStyle.opacity ?? transformer.getSharedVar("opacity") ?? 0.3;
+        const x = transformer.getSharedVar("x");
+        const y = transformer.getSharedVar("y");
+        const width = transformer.getSharedVar("width");
+        const height = transformer.getSharedVar("height");
+        if (width > 0 && height > 0) {
+          const rect = select_default2(layer.getGraphic()).append("rect").attr("x", x).attr("y", y).attr("width", width).attr("height", height).attr("fill", fill).attr("opacity", opacity);
+          Object.entries(brushStyle).forEach(([key, value]) => {
+            if (value !== void 0 && value !== null) {
+              rect.attr(key, value);
+            }
+          });
+        }
+        const selectionHistory = transformer.getSharedVar("selectionHistory");
+        if (selectionHistory && Array.isArray(selectionHistory)) {
+          selectionHistory.forEach((histItem) => {
+            if (histItem.width > 0 && histItem.height > 0) {
+              const histRect = select_default2(layer.getGraphic()).append("rect").attr("x", histItem.offsetx ?? histItem.x).attr("y", histItem.offsety ?? histItem.y).attr("width", histItem.width).attr("height", histItem.height).attr("fill", fill).attr("opacity", opacity);
+              Object.entries(brushStyle).forEach(([key, value]) => {
+                if (value !== void 0 && value !== null) {
+                  histRect.attr(key, value);
+                }
+              });
+            }
+          });
+        }
       }
     });
     GraphicalTransformer.register("SelectionTransformer", {
@@ -4683,7 +4710,11 @@ var init_builtin = __esm({
             elems.attr("fill", highlightColor).attr("stroke", highlightColor);
           }
           attrValueEntries.forEach(([key, value]) => {
-            elems.attr(key, value);
+            if (key === "fill" || key === "stroke") {
+              elems.style(key, value);
+            } else {
+              elems.attr(key, value);
+            }
           });
         }
         const tooltip = transformer.getSharedVar("tooltip");
@@ -4782,8 +4813,8 @@ var init_builtin = __esm({
         const mainLayer = layer.getLayerFromQueue("mainLayer");
         const orientation = transformer.getSharedVar("orientation");
         const style = transformer.getSharedVar("style");
-        const x = transformer.getSharedVar("x");
-        const y = transformer.getSharedVar("y");
+        const x = transformer.getSharedVar("offsetx") ? transformer.getSharedVar("offsetx") : transformer.getSharedVar("x");
+        const y = transformer.getSharedVar("offsety") ? transformer.getSharedVar("offsety") : transformer.getSharedVar("y");
         const tooltipConfig = transformer.getSharedVar("tooltip");
         const scaleX = transformer.getSharedVar("scaleX");
         const scaleY = transformer.getSharedVar("scaleY");
@@ -5186,16 +5217,21 @@ var init_selectionService = __esm({
           resultAlias: options?.resultAlias ?? "result"
         });
         this._currentDimension = [];
-        this._transformers.push(GraphicalTransformer2.initialize("SelectionTransformer", {
-          transient: true,
-          sharedVar: {
-            [this._resultAlias]: [],
-            layer: null,
-            highlightColor: options?.sharedVar?.highlightColor,
-            highlightAttrValues: options?.sharedVar?.highlightAttrValues,
-            tooltip: options?.sharedVar?.tooltip
-          }
-        }));
+        if (options?.renderSelection !== false) {
+          console.log("[SelectionService] Attaching SelectionTransformer to", this._baseName, this);
+          this._transformers.push(GraphicalTransformer2.initialize("SelectionTransformer", {
+            transient: true,
+            sharedVar: {
+              [this._resultAlias]: [],
+              layer: null,
+              highlightColor: options?.sharedVar?.highlightColor,
+              highlightAttrValues: options?.sharedVar?.highlightAttrValues,
+              tooltip: options?.sharedVar?.tooltip
+            }
+          }));
+        } else {
+          console.log("[SelectionService] No SelectionTransformer to", this._baseName, this);
+        }
         this._selectionMapping = new Map();
         Object.entries({
           ...this._userOptions?.query?.attrName ? typeof this._userOptions.query.attrName === "string" ? {
@@ -5244,7 +5280,8 @@ var init_selectionService = __esm({
               x: x - bbox.left,
               y: y - bbox.top,
               width,
-              height
+              height,
+              ...this._sharedVar.brushStyle ? { brushStyle: this._sharedVar.brushStyle } : {}
             });
           }
         });
@@ -5265,10 +5302,24 @@ var init_selectionService = __esm({
           return;
         if (!this._sharedVar.skipPicking) {
           this._oldResult = this._result;
-          this._result = layer.picking({
+          const newResult = layer.picking({
             ...this._userOptions.query,
             ...this._sharedVar
           });
+          const remnantKey = this._sharedVar.remnantKey;
+          const event = this._sharedVar.event || window.event;
+          let isMerging = false;
+          if (remnantKey && event && checkModifier(event, remnantKey)) {
+            isMerging = true;
+          }
+          if (isMerging && this._result) {
+            const combined = [...this._result, ...newResult];
+            this._result = [...new Set(combined)];
+          } else {
+            this._result = newResult;
+          }
+          if (this.isInstanceOf("SurfacePointSelectionService")) {
+          }
         }
         const selectionLayer = layer.getLayerFromQueue("selectionLayer").getGraphic();
         while (selectionLayer?.firstChild) {
@@ -5297,6 +5348,7 @@ var init_selectionService = __esm({
           });
           this._services.forEach((service) => {
             service.setSharedVars({
+              name: this._baseName,
               ...this._sharedVar,
               [this._resultAlias]: resultNodes
             });
@@ -5310,6 +5362,7 @@ var init_selectionService = __esm({
           });
           this._transformers.filter((t) => !t.isInstanceOf("draw-shape")).forEach((transformer) => {
             transformer.setSharedVars({
+              name: this._baseName,
               ...this._sharedVar,
               x: this._sharedVar.offsetx ?? this._sharedVar.x,
               y: this._sharedVar.offsety ?? this._sharedVar.y,
@@ -5317,6 +5370,14 @@ var init_selectionService = __esm({
               [this._resultAlias]: this._result ? this._result.map((node) => layer.cloneVisualElements(node, false)) : []
             });
           });
+          const selectionHistory = this._sharedVar.selectionHistory;
+          if (selectionHistory) {
+            this._transformers.filter((t) => t.isInstanceOf("TransientRectangleTransformer")).forEach((transformer) => {
+              transformer.setSharedVars({
+                selectionHistory
+              });
+            });
+          }
         }
         if (this._sharedVar.scaleX && this._sharedVar.scaleX.invert && this._sharedVar.scaleY && this._sharedVar.scaleY.invert) {
           const x = this._sharedVar.offsetx;
@@ -5564,45 +5625,50 @@ var init_layoutService = __esm({
     });
     Service.register("ScaleService", {
       constructor: LayoutService,
-      evaluate({ offsetx, width, offsety, height, scaleX, scaleY, layer, self }) {
+      evaluate({ offsetx, width, offsety, height, scaleX, scaleY, scaleX_Overview, scaleY_Overview, layer, self }) {
         let layerInstance = layer;
         if (!layerInstance && self._layerInstances && self._layerInstances.length == 1) {
           layerInstance = self._layerInstances[0];
         }
-        if (scaleX && scaleX.invert && !scaleY) {
-          if (width <= 0 || isNaN(width))
-            return scaleX;
-          const scaleXCopy = scaleX.copy();
-          const startX = scaleXCopy.invert(offsetx - (layerInstance?._offset?.x ?? 0));
-          const endX = scaleXCopy.invert(offsetx + width - (layerInstance?._offset?.x ?? 0));
-          scaleXCopy.domain([startX, endX]);
-          scaleXCopy.clamp(true);
-          return scaleXCopy;
-        }
-        if (!scaleX && scaleY && scaleY.invert) {
-          if (height <= 0 || isNaN(height))
-            return scaleY;
-          const scaleYCopy = scaleY.copy();
-          const startY = scaleYCopy.invert(offsety - (layerInstance?._offset?.y ?? 0));
-          const endY = scaleYCopy.invert(offsety + height - (layerInstance?._offset?.y ?? 0));
-          scaleYCopy.domain([startY, endY]);
-          scaleYCopy.clamp(true);
-          return scaleYCopy;
-        }
         if (scaleX && scaleY && scaleX.invert && scaleY.invert) {
-          if (width <= 0 || isNaN(width) || height <= 0 || isNaN(height))
+          if ((width <= 0 || isNaN(width)) && (height <= 0 || isNaN(height)))
             return { scaleX, scaleY };
-          const scaleXCopy = scaleX.copy();
-          const scaleYCopy = scaleY.copy();
-          const startX = scaleXCopy.invert(offsetx - (layerInstance?._offset?.x ?? 0));
-          const endX = scaleXCopy.invert(offsetx + width - (layerInstance?._offset?.x ?? 0));
-          const startY = scaleYCopy.invert(offsety - (layerInstance?._offset?.y ?? 0));
-          const endY = scaleYCopy.invert(offsety + height - (layerInstance?._offset?.y ?? 0));
-          scaleXCopy.domain([startX, endX]);
-          scaleYCopy.domain([startY, endY]);
-          scaleXCopy.clamp(true);
-          scaleYCopy.clamp(true);
-          return { scaleX: scaleXCopy, scaleY: scaleYCopy };
+          else if (height <= 0 || isNaN(height)) {
+            const scaleXCopy = scaleX.copy();
+            const startX = scaleX_Overview.invert(offsetx - (layerInstance?._offset?.x ?? 0));
+            const endX = scaleX_Overview.invert(offsetx + width - (layerInstance?._offset?.x ?? 0));
+            scaleXCopy.domain([startX, endX]);
+            scaleXCopy.clamp(true);
+            return { scaleX: scaleXCopy };
+          } else if (width <= 0 || isNaN(width)) {
+            const scaleYCopy = scaleY.copy();
+            const startY = scaleY_Overview.invert(offsety - (layerInstance?._offset?.y ?? 0));
+            const endY = scaleY_Overview.invert(offsety + height - (layerInstance?._offset?.y ?? 0));
+            if (scaleY.domain()[0] < scaleY.domain()[1]) {
+              scaleYCopy.domain([endY, startY]);
+            } else {
+              scaleYCopy.domain([startY, endY]);
+            }
+            scaleYCopy.clamp(true);
+            return { scaleY: scaleYCopy };
+          } else {
+            const scaleXCopy = scaleX.copy();
+            const scaleYCopy = scaleY.copy();
+            const startX = scaleX_Overview.invert(offsetx - (layerInstance?._offset?.x ?? 0));
+            const endX = scaleX_Overview.invert(offsetx + width - (layerInstance?._offset?.x ?? 0));
+            const startY = scaleY_Overview.invert(offsety - (layerInstance?._offset?.y ?? 0));
+            const endY = scaleY_Overview.invert(offsety + height - (layerInstance?._offset?.y ?? 0));
+            scaleXCopy.domain([startX, endX]);
+            if (scaleY.domain()[0] < scaleY.domain()[1]) {
+              scaleYCopy.domain([endY, startY]);
+            } else {
+              scaleYCopy.domain([startY, endY]);
+            }
+            scaleXCopy.clamp(true);
+            scaleYCopy.clamp(true);
+            console.log("ScaleService evaluate", offsetx, offsety, width, height);
+            return { scaleX: scaleXCopy, scaleY: scaleYCopy };
+          }
         }
         return { scaleX, scaleY };
       }
@@ -5915,7 +5981,7 @@ var init_interactor = __esm({
           ...new Set(this._actions.flatMap((action) => action.eventStreams.flatMap((eventStream) => eventStream.type)).concat(["contextmenu"]))
         ];
       }
-      async dispatch(event, layer) {
+      async dispatch(event, layer, pickingResult) {
         const moveAction = this._actions.find((action) => {
           const events = action.eventStreams.map((es) => es.type);
           let inculdeEvent = false;
@@ -5956,7 +6022,8 @@ var init_interactor = __esm({
                   layer,
                   instrument: null,
                   interactor: this,
-                  event
+                  event,
+                  pickingResult
                 });
               } catch (e) {
                 console.error(e);
@@ -6229,6 +6296,9 @@ var init_layer = __esm({
     Layer = class {
       constructor(baseName4, options) {
         this._nextTick = 0;
+        this._children = [];
+        this._parent = null;
+        this._updateListeners = [];
         this[_a4] = true;
         options.preInitialize && options.preInitialize.call(this, this);
         this._baseName = baseName4;
@@ -6243,11 +6313,68 @@ var init_layer = __esm({
         instanceLayers.push(this);
         this._postInitialize && this._postInitialize.call(this, this);
       }
+      setOffset(x, y) {
+        if (this._graphic && this._graphic.setAttribute) {
+          this._graphic.setAttribute("transform", `translate(${x},${y})`);
+        }
+        if (Object.prototype.hasOwnProperty.call(this, "_offset")) {
+          this._offset = { x, y };
+        }
+      }
+      setOffsetCascade(x, y) {
+        this.setOffset(x, y);
+        this._children.forEach((child) => {
+          child.setOffset(x, y);
+        });
+      }
+      destroy() {
+        if (this._graphic) {
+          const elem = this._graphic;
+          if (elem.remove) {
+            elem.remove();
+          } else if (elem.parentNode) {
+            elem.parentNode.removeChild(elem);
+          }
+        }
+        const index = instanceLayers.indexOf(this);
+        if (index > -1) {
+          instanceLayers.splice(index, 1);
+        }
+        if (siblingLayers.has(this)) {
+          const siblings = siblingLayers.get(this);
+          if (siblings && this._name in siblings) {
+            delete siblings[this._name];
+          }
+          siblingLayers.delete(this);
+        }
+        if (orderLayers.has(this)) {
+          const orders = orderLayers.get(this);
+          if (orders && this._name in orders) {
+            delete orders[this._name];
+          }
+          orderLayers.delete(this);
+        }
+      }
       getGraphic() {
         return this._graphic;
       }
       getContainerGraphic() {
         return this._container;
+      }
+      getBBox() {
+        if (this._graphic instanceof SVGGraphicsElement) {
+          return this._graphic.getBBox();
+        } else if (this._graphic instanceof HTMLElement) {
+          const rect = this._graphic.getBoundingClientRect();
+          const containerRect = this._container.getBoundingClientRect();
+          return {
+            x: rect.left - containerRect.left,
+            y: rect.top - containerRect.top,
+            width: rect.width,
+            height: rect.height
+          };
+        }
+        return { x: 0, y: 0, width: 0, height: 0 };
       }
       getVisualElements() {
         return [];
@@ -6270,6 +6397,10 @@ var init_layer = __esm({
       }
       postUpdate() {
         this._postUpdate && this._postUpdate.call(this, this);
+        this._updateListeners.forEach((listener) => listener(this));
+      }
+      onUpdate(listener) {
+        this._updateListeners.push(listener);
       }
       picking(options) {
         return [];
@@ -6307,13 +6438,20 @@ var init_layer = __esm({
         }
         const siblings = siblingLayers.get(this);
         if (!(siblingLayerName in siblings)) {
+          const baseOptions = { ...this._userOptions };
+          const runtimeOffset = this._offset;
+          if (runtimeOffset) {
+            baseOptions.offset = runtimeOffset;
+          }
           const layer = Layer.initialize(this._baseName, {
-            ...this._userOptions,
+            ...baseOptions,
             name: siblingLayerName,
             group: "",
             redraw() {
             }
           });
+          layer._parent = this;
+          this._children.push(layer);
           siblings[siblingLayerName] = layer;
           siblingLayers.set(layer, siblings);
           const graphic = siblings[siblingLayerName].getGraphic();
@@ -6544,6 +6682,9 @@ var init_d3Layer = __esm({
           result = [...elemSet].filter(this._isElementInLayer.bind(this));
         } else if (options.type === ShapeQueryType.Rect) {
           const { x, y, width, height } = options;
+          if (!isFinite(x) || !isFinite(y) || !isFinite(width) || !isFinite(height)) {
+            return [];
+          }
           const x0 = Math.min(x, x + width) - svgBCR.left, y0 = Math.min(y, y + height) - svgBCR.top, absWidth = Math.abs(width), absHeight = Math.abs(height);
           const rect = this._svg.createSVGRect();
           rect.x = x0;
@@ -9043,6 +9184,8 @@ var init_instrument = __esm({
         this._services = options.services ?? [];
         this._serviceInstances = [];
         this._sharedVar = options.sharedVar ?? {};
+        this._priority = options.priority ?? 0;
+        this._stopPropagation = options.stopPropagation ?? false;
         this._transformers = options.transformers ?? [];
         if (options.interactors) {
           options.interactors.forEach((interactor) => {
@@ -9324,18 +9467,35 @@ var init_instrument = __esm({
         }
         eventHandling = true;
         const layers = EventDispatcher.get(layer.getContainerGraphic()).get(event).filter(([_, layr]) => layr._order >= 0);
-        layers.sort((a, b) => b[1]._order - a[1]._order);
+        if (!layers)
+          return;
+        layers.sort((a, b) => {
+          const priorityA = a[3]._priority;
+          const priorityB = b[3]._priority;
+          if (priorityA !== priorityB) {
+            return priorityB - priorityA;
+          }
+          return b[1]._order - a[1]._order;
+        });
         let handled = false;
         for (let [inter, layr, layerOption, instrument] of layers) {
+          let pickingResult = [];
           if (e instanceof MouseEvent) {
             if (layr._name?.toLowerCase().replaceAll("-", "").replaceAll("_", "") === "backgroundlayer" || layr._name?.toLowerCase().replaceAll("-", "").replaceAll("_", "") === "bglayer" || layerOption && layerOption.pointerEvents === "all") {
             } else if (!layerOption || layerOption.pointerEvents === "viewport") {
+              pickingResult = [];
               const maybeD3Layer = layr;
               if (maybeD3Layer._offset && maybeD3Layer._width && maybeD3Layer._height) {
                 if (e.offsetX < maybeD3Layer._offset.x || e.offsetX > maybeD3Layer._offset.x + maybeD3Layer._width || e.offsetY < maybeD3Layer._offset.y || e.offsetY > maybeD3Layer._offset.y + maybeD3Layer._height) {
                   continue;
                 }
               }
+              pickingResult = layr.picking({
+                baseOn: QueryType.Shape,
+                type: ShapeQueryType.Point,
+                x: e.clientX,
+                y: e.clientY
+              });
             } else {
               const query = layr.picking({
                 baseOn: QueryType.Shape,
@@ -9345,6 +9505,7 @@ var init_instrument = __esm({
               });
               if (query.length <= 0 && inter._state === "start")
                 continue;
+              pickingResult = query;
               const maybeD3Layer = layr;
               if (maybeD3Layer._offset && maybeD3Layer._width && maybeD3Layer._height) {
                 if (e.offsetX < maybeD3Layer._offset.x || e.offsetX > maybeD3Layer._offset.x + maybeD3Layer._width || e.offsetY < maybeD3Layer._offset.y || e.offsetY > maybeD3Layer._offset.y + maybeD3Layer._height) {
@@ -9353,11 +9514,25 @@ var init_instrument = __esm({
               }
             }
           }
+          const modifierKey = instrument.getSharedVar("modifierKey");
+          if (e instanceof MouseEvent && !checkModifier(e, modifierKey)) {
+            continue;
+          }
           try {
-            let flag = await inter.dispatch(e, layr);
-            if (flag && e instanceof MouseEvent && layerOption && layerOption.pointerEvents === "visiblePainted") {
-              handled = true;
-              break;
+            let flag = await inter.dispatch(e, layr, pickingResult);
+            if (flag) {
+              if (globalConfig.debug) {
+              }
+              if (instrument._stopPropagation) {
+                if (globalConfig.debug) {
+                }
+                handled = true;
+                break;
+              }
+              if (e instanceof MouseEvent && layerOption && layerOption.pointerEvents === "visiblePainted") {
+                handled = true;
+                break;
+              }
             }
           } catch (e2) {
             console.error(e2);
@@ -9427,7 +9602,10 @@ var init_builtin3 = __esm({
       interactors: ["MousePositionInteractor", "TouchPositionInteractor"],
       on: {
         hover: [
-          async ({ event, layer, instrument }) => {
+          async ({ event, layer, instrument, pickingResult }) => {
+            const modifierKey = instrument.getSharedVar("modifierKey");
+            if (!checkModifier(event, modifierKey))
+              return;
             if (event.changedTouches)
               event = event.changedTouches[0];
             const services = instrument.services.find("SelectionService");
@@ -9445,24 +9623,26 @@ var init_builtin3 = __esm({
         click: [Command2.initialize("Log", { execute() {
         } })]
       },
-      postInitialize: (instrument) => {
-        instrument.services.add("SurfacePointSelectionService", {
-          sharedVar: {
-            deepClone: instrument.getSharedVar("deepClone"),
-            highlightColor: instrument.getSharedVar("highlightColor"),
-            highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
-            tooltip: instrument.getSharedVar("tooltip")
-          }
-        });
-      },
       preAttach: (instrument, layer) => {
+        if (layer.onUpdate) {
+          layer.onUpdate((layer2) => {
+            const services = instrument.services.find("SelectionService");
+            if (services) {
+              services._result = [];
+              services._evaluate(layer2);
+            }
+          });
+        }
+        const renderSelection = instrument.getSharedVar("renderSelection");
         instrument.services.add("SurfacePointSelectionService", {
           layer,
+          renderSelection,
           sharedVar: {
             deepClone: instrument.getSharedVar("deepClone"),
             highlightColor: instrument.getSharedVar("highlightColor"),
             highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
-            tooltip: instrument.getSharedVar("tooltip")
+            tooltip: instrument.getSharedVar("tooltip"),
+            data: instrument.getSharedVar("data")
           }
         });
       }
@@ -9474,6 +9654,12 @@ var init_builtin3 = __esm({
         dragstart: [
           async (options) => {
             let { event, layer, instrument } = options;
+            const modifierKey = instrument.getSharedVar("modifierKey");
+            if (!checkModifier(event, modifierKey)) {
+              instrument.setSharedVar("interactionValid", false);
+              return;
+            }
+            instrument.setSharedVar("interactionValid", true);
             if (event.changedTouches)
               event = event.changedTouches[0];
             instrument.setSharedVar("x", event.clientX);
@@ -9496,6 +9682,11 @@ var init_builtin3 = __esm({
         dragend: [
           async (options) => {
             let { event, layer, instrument } = options;
+            if (!instrument.getSharedVar("interactionValid"))
+              return;
+            const modifierKey = instrument.getSharedVar("modifierKey");
+            if (!checkModifier(event, modifierKey))
+              return;
             if (event.changedTouches)
               event = event.changedTouches[0];
             const services = instrument.services.find("SelectionService");
@@ -9557,9 +9748,26 @@ var init_builtin3 = __esm({
       on: {
         dragstart: [
           async ({ event, layer, instrument }) => {
+            const modifierKey = instrument.getSharedVar("modifierKey");
+            if (!checkModifier(event, modifierKey)) {
+              instrument.setSharedVar("interactionValid", false);
+              return;
+            }
+            instrument.setSharedVar("interactionValid", true);
             if (event.changedTouches)
               event = event.changedTouches[0];
             const services = instrument.services.find("RectSelectionService");
+            let selectionHistory = instrument.getSharedVar("selectionHistory");
+            if (!selectionHistory) {
+              selectionHistory = [];
+              instrument.setSharedVar("selectionHistory", selectionHistory);
+            }
+            const remnantKey = instrument.getSharedVar("remnantKey");
+            const isMerging = remnantKey && checkModifier(event, remnantKey);
+            if (!isMerging) {
+              selectionHistory = [];
+              instrument.setSharedVar("selectionHistory", selectionHistory);
+            }
             services.setSharedVars({
               x: event.clientX,
               y: event.clientY,
@@ -9572,7 +9780,8 @@ var init_builtin3 = __esm({
               startoffsetx: event.offsetX,
               startoffsety: event.offsetY,
               currentx: event.clientX,
-              currenty: event.clientY
+              currenty: event.clientY,
+              selectionHistory
             }, { layer });
             const x = event.offsetX;
             const y = event.offsetY;
@@ -9604,6 +9813,8 @@ var init_builtin3 = __esm({
         drag: [
           async (options) => {
             let { event, layer, instrument } = options;
+            if (!instrument.getSharedVar("interactionValid"))
+              return;
             if (event.changedTouches)
               event = event.changedTouches[0];
             const startx = instrument.getSharedVar("startx");
@@ -9612,10 +9823,12 @@ var init_builtin3 = __esm({
             const startoffsety = instrument.getSharedVar("startoffsety");
             const x = Math.min(startx, event.clientX);
             const y = Math.min(starty, event.clientY);
-            const offsetx = Math.min(startoffsetx, event.offsetX);
-            const offsety = Math.min(startoffsety, event.offsetY);
-            const width = Math.abs(event.clientX - startx);
-            const height = Math.abs(event.clientY - starty);
+            const diffx = event.clientX - startx;
+            const diffy = event.clientY - starty;
+            const offsetx = Math.min(startoffsetx, startoffsetx + diffx);
+            const offsety = Math.min(startoffsety, startoffsety + diffy);
+            const width = Math.abs(diffx);
+            const height = Math.abs(diffy);
             const services = instrument.services.find("SelectionService");
             services.setSharedVars({
               x,
@@ -9625,12 +9838,66 @@ var init_builtin3 = __esm({
               width,
               height,
               currentx: event.clientX,
-              currenty: event.clientY
+              currenty: event.clientY,
+              remnantKey: instrument.getSharedVar("remnantKey"),
+              event
             }, { layer });
           }
         ],
-        dragend: [Command2.initialize("Log", { execute() {
-        } })],
+        dragend: [
+          async (options) => {
+            const { event, layer, instrument } = options;
+            const remnantKey = instrument.getSharedVar("remnantKey");
+            const inputEvent = event.changedTouches ? event.changedTouches[0] : event;
+            let selectionHistory = instrument.getSharedVar("selectionHistory") || [];
+            if (remnantKey && !checkModifier(event, remnantKey)) {
+              selectionHistory = [];
+              instrument.setSharedVar("selectionHistory", selectionHistory);
+              const services = instrument.services.find("RectSelectionService");
+              services.setSharedVars({
+                x: 0,
+                y: 0,
+                offsetx: 0,
+                offsety: 0,
+                width: 0,
+                height: 0,
+                currentx: inputEvent.clientX,
+                currenty: inputEvent.clientY,
+                endx: inputEvent.clientX,
+                endy: inputEvent.clientY,
+                selectionHistory: []
+              }, { layer });
+              instrument.emit("brushabort", options);
+            } else {
+              const startx = instrument.getSharedVar("startx");
+              const starty = instrument.getSharedVar("starty");
+              const startoffsetx = instrument.getSharedVar("startoffsetx");
+              const startoffsety = instrument.getSharedVar("startoffsety");
+              const x = Math.min(startx, inputEvent.clientX);
+              const y = Math.min(starty, inputEvent.clientY);
+              const diffx = inputEvent.clientX - startx;
+              const diffy = inputEvent.clientY - starty;
+              const offsetx = Math.min(startoffsetx, startoffsetx + diffx);
+              const offsety = Math.min(startoffsety, startoffsety + diffy);
+              const width = Math.abs(diffx);
+              const height = Math.abs(diffy);
+              const layerOffsetX = layer._offset?.x ?? 0;
+              const layerOffsetY = layer._offset?.y ?? 0;
+              selectionHistory.push({
+                x,
+                y,
+                offsetx: offsetx - layerOffsetX,
+                offsety: offsety - layerOffsetY,
+                width,
+                height
+              });
+              instrument.setSharedVar("selectionHistory", selectionHistory);
+              console.log("[BrushInstrument] Selection History:", selectionHistory);
+              Command2.initialize("Log", { execute() {
+              } }).execute(options);
+            }
+          }
+        ],
         dragabort: [
           async (options) => {
             let { event, layer, instrument } = options;
@@ -9654,7 +9921,19 @@ var init_builtin3 = __esm({
         ]
       },
       preAttach: (instrument, layer) => {
-        layer.getLayerFromQueue("selectionLayer");
+        const selectionLayer = layer.getLayerFromQueue("selectionLayer");
+        if (layer.onUpdate) {
+          layer.onUpdate(() => {
+            console.log("[BrushInstrument] Parent layer updated. Re-evaluating selection...");
+            const graphic = selectionLayer.getGraphic();
+            if (graphic)
+              graphic.innerHTML = "";
+            const selectionService = instrument.services.find("RectSelectionService");
+            if (selectionService) {
+              selectionService._evaluate(layer);
+            }
+          });
+        }
         instrument.services.add("RectSelectionService", {
           layer,
           sharedVar: {
@@ -9662,7 +9941,8 @@ var init_builtin3 = __esm({
             ...instrument.getSharedVar("highlightColor") ? { highlightColor: instrument.getSharedVar("highlightColor") } : {},
             ...instrument.getSharedVar("highlightAttrValues") ? {
               highlightAttrValues: instrument.getSharedVar("highlightAttrValues")
-            } : {}
+            } : {},
+            ...instrument.getSharedVar("brushStyle") ? { brushStyle: instrument.getSharedVar("brushStyle") } : {}
           }
         });
       }
@@ -9673,6 +9953,12 @@ var init_builtin3 = __esm({
       on: {
         dragstart: [
           async ({ event, layer, instrument }) => {
+            const modifierKey = instrument.getSharedVar("modifierKey");
+            if (!checkModifier(event, modifierKey)) {
+              instrument.setSharedVar("interactionValid", false);
+              return;
+            }
+            instrument.setSharedVar("interactionValid", true);
             if (event.changedTouches)
               event = event.changedTouches[0];
             const services = instrument.services;
@@ -9691,6 +9977,8 @@ var init_builtin3 = __esm({
         drag: [
           async (options) => {
             let { event, layer, instrument } = options;
+            if (!instrument.getSharedVar("interactionValid"))
+              return;
             if (event.changedTouches)
               event = event.changedTouches[0];
             const startx = instrument.getSharedVar("startx");
@@ -9727,12 +10015,26 @@ var init_builtin3 = __esm({
         ]
       },
       preAttach: (instrument, layer) => {
+        const selectionLayer = layer.getLayerFromQueue("selectionLayer");
+        if (layer.onUpdate) {
+          layer.onUpdate(() => {
+            console.log("[BrushXInstrument] Parent layer updated. Re-evaluating selection...");
+            const graphic = selectionLayer.getGraphic();
+            if (graphic)
+              graphic.innerHTML = "";
+            const selectionService = instrument.services.find("RectSelectionService");
+            if (selectionService) {
+              selectionService._evaluate(layer);
+            }
+          });
+        }
         instrument.services.add("RectSelectionService", {
           layer,
           sharedVar: {
             deepClone: instrument.getSharedVar("deepClone"),
             highlightColor: instrument.getSharedVar("highlightColor"),
-            highlightAttrValues: instrument.getSharedVar("highlightAttrValues")
+            highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
+            ...instrument.getSharedVar("brushStyle") ? { brushStyle: instrument.getSharedVar("brushStyle") } : {}
           }
         });
       }
@@ -9743,94 +10045,89 @@ var init_builtin3 = __esm({
       on: {
         dragstart: [
           async ({ event, layer, instrument }) => {
+            const modifierKey = instrument.getSharedVar("modifierKey");
+            if (!checkModifier(event, modifierKey)) {
+              instrument.setSharedVar("interactionValid", false);
+              return;
+            }
+            instrument.setSharedVar("interactionValid", true);
             if (event.changedTouches)
               event = event.changedTouches[0];
-            const services = instrument.services.find("RectSelectionService");
-            services.setSharedVar("y", event.clientY, { layer });
-            services.setSharedVar("height", 1, { layer });
-            services.setSharedVar("starty", event.clientY, { layer });
-            services.setSharedVar("currenty", event.clientY, { layer });
+            const services = instrument.services;
+            services.setSharedVars({
+              y: event.clientY,
+              offsety: event.offsetY,
+              height: 0,
+              starty: event.clientY,
+              startoffsety: event.offsetY,
+              currenty: event.clientY
+            }, { layer });
             instrument.setSharedVar("starty", event.clientY);
-            instrument.transformers.find("TransientRectangleTransformer").setSharedVars({
-              y: 0,
-              height: 1
-            });
+            instrument.setSharedVar("startoffsety", event.offsetY);
           }
         ],
         drag: [
-          Command2.initialize("drawBrushAndSelect", {
-            continuous: true,
-            execute: async ({ event, layer, instrument }) => {
-              if (event.changedTouches)
-                event = event.changedTouches[0];
-              const starty = instrument.getSharedVar("starty");
-              const y = Math.min(starty, event.clientY);
-              const height = Math.abs(event.clientY - starty);
-              const services = instrument.services.find("SelectionService");
-              services.setSharedVar("y", y, { layer });
-              services.setSharedVar("height", height, {
-                layer
-              });
-              services.setSharedVar("currenty", event.clientY, { layer });
-              await Promise.all(instrument.services.results);
-            },
-            feedback: [
-              async ({ event, layer, instrument }) => {
-                const starty = instrument.getSharedVar("starty");
-                const y = Math.min(starty, event.clientY);
-                const height = Math.abs(event.clientY - starty);
-                const baseBBox = (layer.getGraphic().querySelector(".ig-layer-background") || layer.getGraphic()).getBoundingClientRect();
-                instrument.transformers.find("TransientRectangleTransformer").setSharedVars({
-                  y: y - baseBBox.top,
-                  height
-                });
-              },
-              async ({ instrument }) => {
-                instrument.transformers.find("HighlightSelection").setSharedVars({
-                  highlightAttrValues: instrument.getSharedVar("highlightAttrValues") || {}
-                });
-              }
-            ]
-          })
-        ],
-        dragabort: [
-          async ({ event, layer, instrument }) => {
+          async (options) => {
+            let { event, layer, instrument } = options;
+            if (!instrument.getSharedVar("interactionValid"))
+              return;
             if (event.changedTouches)
               event = event.changedTouches[0];
-            const services = instrument.services.find("SelectionService");
-            services.setSharedVar("y", 0, { layer });
-            services.setSharedVar("height", 0, { layer });
-            services.setSharedVar("currenty", event.clientY, { layer });
-            services.setSharedVar("endy", event.clientY, { layer });
-            instrument.transformers.find("TransientRectangleTransformer").setSharedVars({
+            const starty = instrument.getSharedVar("starty");
+            const startoffsety = instrument.getSharedVar("startoffsety");
+            const y = Math.min(starty, event.clientY);
+            const offsety = Math.min(startoffsety, event.offsetY);
+            const height = Math.abs(event.clientY - starty);
+            instrument.services.find("SelectionService").setSharedVars({
+              y,
+              offsety,
+              height,
+              currenty: event.clientY
+            }, { layer });
+            instrument.setSharedVar("currenty", event.clientY);
+            instrument.setSharedVar("currentoffsety", event.offsetY);
+            instrument.emit("brush", options);
+          }
+        ],
+        dragend: [Command2.initialize("Log", { execute() {
+        } })],
+        dragabort: [
+          async (options) => {
+            let { event, layer, instrument } = options;
+            if (event.changedTouches)
+              event = event.changedTouches[0];
+            instrument.services.setSharedVars({
               y: 0,
-              height: 0
-            });
+              offsety: 0,
+              height: 0,
+              currenty: event.clientY
+            }, { layer });
+            instrument.emit("brushabort", options);
           }
         ]
       },
       preAttach: (instrument, layer) => {
-        const x = instrument.getSharedVar("x") ?? 0;
-        const width = instrument.getSharedVar("width") ?? layer._width;
-        const services = instrument.services.add("RectSelectionService", { layer });
-        const bbox = layer.getGraphic().getBoundingClientRect();
-        services.setSharedVar("x", bbox.x + x);
-        services.setSharedVar("width", width);
-        instrument.transformers.add("TransientRectangleTransformer", {
-          transient: true,
-          layer: layer.getLayerFromQueue("transientLayer"),
+        const selectionLayer = layer.getLayerFromQueue("selectionLayer");
+        if (layer.onUpdate) {
+          layer.onUpdate(() => {
+            console.log("[BrushYInstrument] Parent layer updated. Re-evaluating selection...");
+            const graphic = selectionLayer.getGraphic();
+            if (graphic)
+              graphic.innerHTML = "";
+            const selectionService = instrument.services.find("RectSelectionService");
+            if (selectionService) {
+              selectionService._evaluate(layer);
+            }
+          });
+        }
+        instrument.services.add("RectSelectionService", {
+          layer,
           sharedVar: {
-            x: 0,
-            y: 0,
-            width,
-            height: 0,
-            fill: "#000",
-            opacity: 0.3
+            deepClone: instrument.getSharedVar("deepClone"),
+            highlightColor: instrument.getSharedVar("highlightColor"),
+            highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
+            ...instrument.getSharedVar("brushStyle") ? { brushStyle: instrument.getSharedVar("brushStyle") } : {}
           }
-        }).add("HighlightSelection", {
-          transient: true,
-          layer: layer.getLayerFromQueue("selectionLayer"),
-          sharedVar: { highlightAttrValues: {} }
         });
       }
     });
@@ -9961,6 +10258,19 @@ var init_builtin3 = __esm({
         ]
       },
       preAttach: async (instrument, layer) => {
+        const selectionLayer = layer.getLayerFromQueue("selectionLayer");
+        if (layer.onUpdate) {
+          layer.onUpdate(() => {
+            console.log("[DataBrushInstrument] Parent layer updated. Re-evaluating selection...");
+            const graphic = selectionLayer.getGraphic();
+            if (graphic)
+              graphic.innerHTML = "";
+            const selectionService = instrument.services.find("Quantitative2DSelectionService");
+            if (selectionService) {
+              selectionService._evaluate(layer);
+            }
+          });
+        }
         const scaleX = instrument.getSharedVar("scaleX");
         const scaleY = instrument.getSharedVar("scaleY");
         const attrNameX = instrument.getSharedVar("attrNameX");
@@ -10073,6 +10383,19 @@ var init_builtin3 = __esm({
         ]
       },
       preAttach: (instrument, layer) => {
+        const selectionLayer = layer.getLayerFromQueue("selectionLayer");
+        if (layer.onUpdate) {
+          layer.onUpdate(() => {
+            console.log("[DataBrushXInstrument] Parent layer updated. Re-evaluating selection...");
+            const graphic = selectionLayer.getGraphic();
+            if (graphic)
+              graphic.innerHTML = "";
+            const selectionService = instrument.services.find("QuantitativeSelectionService");
+            if (selectionService) {
+              selectionService._evaluate(layer);
+            }
+          });
+        }
         const scaleX = instrument.getSharedVar("scaleX");
         const height = instrument.getSharedVar("height") ?? layer._height;
         const y = instrument.getSharedVar("y") ?? 0;
@@ -10254,6 +10577,12 @@ var init_builtin3 = __esm({
       on: {
         dragstart: [
           ({ layer, event, instrument }) => {
+            const modifierKey = instrument.getSharedVar("modifierKey");
+            if (!checkModifier(event, modifierKey)) {
+              instrument.setSharedVar("interactionValid", false);
+              return;
+            }
+            instrument.setSharedVar("interactionValid", true);
             if (event.changedTouches)
               event = event.changedTouches[0];
             instrument.setSharedVar("startx", event.clientX);
@@ -10276,6 +10605,8 @@ var init_builtin3 = __esm({
         ],
         drag: [
           async ({ layer, event, instrument, transformer }) => {
+            if (!instrument.getSharedVar("interactionValid"))
+              return;
             if (event.changedTouches)
               event = event.changedTouches[0];
             let transformers = instrument.transformers;
@@ -10389,6 +10720,9 @@ var init_builtin3 = __esm({
       on: {
         wheel: [
           ({ layer, instrument, event }) => {
+            const modifierKey = instrument.getSharedVar("modifierKey");
+            if (!checkModifier(event, modifierKey))
+              return;
             const layerGraphic = layer.getGraphic();
             const layerRoot = select_default2(layerGraphic);
             let transformers = instrument.transformers;
@@ -10592,6 +10926,102 @@ var init_builtin3 = __esm({
           ({ layer, event, instrument, transformer }) => {
           }
         ]
+      }
+    });
+    Instrument.register("ReorderInstrument", {
+      constructor: Instrument,
+      interactors: ["MouseTraceInteractor", "TouchTraceInteractor"],
+      on: {
+        dragstart: [
+          ({ layer, event, instrument }) => {
+            if (event.changedTouches)
+              event = event.changedTouches[0];
+            instrument.services.setSharedVars({
+              x: event.clientX,
+              y: event.clientY,
+              startx: event.clientX,
+              starty: event.clientY,
+              currentx: event.clientX,
+              currenty: event.clientY,
+              offsetx: event.offsetX,
+              offsety: event.offsetY,
+              offset: { x: 0, y: 0 },
+              skipPicking: false
+            }, { layer });
+          }
+        ],
+        drag: [
+          ({ layer, event, instrument }) => {
+            if (event.changedTouches)
+              event = event.changedTouches[0];
+            const offsetX = event.clientX - instrument.services.getSharedVar("x", { layer })[0];
+            const offsetY = event.clientY - instrument.services.getSharedVar("y", { layer })[0];
+            instrument.setSharedVar("offsetx", offsetX, { layer });
+            instrument.setSharedVar("offsety", offsetY, { layer });
+            instrument.services.setSharedVars({
+              x: event.clientX,
+              y: event.clientY,
+              currentx: event.clientX,
+              currenty: event.clientY,
+              offsetx: event.offsetX,
+              offsety: event.offsetY,
+              offset: { x: offsetX, y: offsetY },
+              skipPicking: true
+            }, { layer });
+          }
+        ],
+        dragend: [
+          ({ layer, event, instrument }) => {
+            if (event.changedTouches)
+              event = event.changedTouches[0];
+            const offsetX = event.clientX - instrument.services.getSharedVar("x", { layer })[0];
+            const offsetY = event.clientY - instrument.services.getSharedVar("y", { layer })[0];
+            instrument.services.setSharedVars({
+              x: 0,
+              y: 0,
+              currentx: event.clientX,
+              currenty: event.clientY,
+              endx: event.clientX,
+              endy: event.clientY,
+              offsetx: 0,
+              offsety: 0,
+              offset: { x: 0, y: 0 },
+              skipPicking: false
+            }, { layer });
+            instrument.setSharedVar("offsetx", offsetX, { layer });
+            instrument.setSharedVar("offsety", offsetY, { layer });
+          },
+          Command2.initialize("Log", { execute() {
+          } })
+        ],
+        dragabort: [
+          (options) => {
+            let { layer, event, instrument } = options;
+            if (event.changedTouches)
+              event = event.changedTouches[0];
+            instrument.services.setSharedVars({
+              x: 0,
+              y: 0,
+              currentx: event.clientX,
+              currenty: event.clientY,
+              endx: 0,
+              endy: 0,
+              offsetx: 0,
+              offsety: 0,
+              skipPicking: false
+            }, { layer });
+            instrument.emit("dragconfirm", {
+              ...options,
+              self: options.instrument
+            });
+          }
+        ]
+      },
+      preAttach: (instrument, layer) => {
+        instrument.services.add("SurfacePointSelectionService", {
+          layer,
+          sharedVar: { deepClone: instrument.getSharedVar("deepClone") }
+        });
       }
     });
   }
@@ -11087,10 +11517,33 @@ function deepClone(obj) {
   const propertyObject = Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, deepClone(v)]));
   return Object.assign(Object.create(Object.getPrototypeOf(obj)), propertyObject);
 }
-var LibraSymbol, QueryType, ShapeQueryType, DataQueryType, NonsenseClass, tryRegisterDynamicInstance2, VIEW, LBRACK, RBRACK, LBRACE, RBRACE, COLON, COMMA, NAME, GT, ILLEGAL, DEFAULT_SOURCE, DEFAULT_MARKS, MARKS, global;
+function checkModifier(event, modifier) {
+  if (!modifier)
+    return true;
+  if (!(event instanceof MouseEvent))
+    return true;
+  switch (modifier.toLowerCase()) {
+    case "ctrl":
+      return event.ctrlKey;
+    case "shift":
+      return event.shiftKey;
+    case "alt":
+      return event.altKey;
+    case "meta":
+    case "cmd":
+    case "command":
+      return event.metaKey;
+    default:
+      return true;
+  }
+}
+var LibraSymbol, globalConfig, QueryType, ShapeQueryType, DataQueryType, NonsenseClass, tryRegisterDynamicInstance2, VIEW, LBRACK, RBRACK, LBRACE, RBRACE, COLON, COMMA, NAME, GT, ILLEGAL, DEFAULT_SOURCE, DEFAULT_MARKS, MARKS, global;
 var init_helpers = __esm({
   "dist/esm/helpers.js"() {
     LibraSymbol = Symbol("Libra");
+    globalConfig = {
+      debug: true
+    };
     (function(QueryType2) {
       QueryType2[QueryType2["Shape"] = 0] = "Shape";
       QueryType2[QueryType2["Data"] = 1] = "Data";
@@ -11267,6 +11720,8 @@ var Interaction = class {
     let instrument;
     if (options.inherit in registeredInstruments) {
       const inheritOption = Object.assign({ constructor: Instrument }, registeredInstruments[options.inherit], {
+        priority: options.priority,
+        stopPropagation: options.stopPropagation,
         sharedVar: Object.assign({}, {
           layers: options.layers ?? [],
           layer: options.layers?.length == 1 ? options.layers[0] : void 0

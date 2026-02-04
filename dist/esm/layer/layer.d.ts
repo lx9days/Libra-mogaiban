@@ -34,16 +34,34 @@ export default class Layer<T> {
     _postInitialize?: <T>(layer: Layer<T>) => void;
     _preUpdate?: <T>(layer: Layer<T>) => void;
     _postUpdate?: <T>(layer: Layer<T>) => void;
+    _children: Layer<any>[];
+    _parent: Layer<any> | null;
+    _updateListeners: ((layer: Layer<T>) => void)[];
     [helpers.LibraSymbol]: boolean;
     constructor(baseName: string, options: LayerInitOption);
+    setOffset(x: number, y: number): void;
+    setOffsetCascade(x: number, y: number): void;
+    destroy(): void;
     getGraphic(): T;
     getContainerGraphic(): HTMLElement;
+    /**
+     * Get the bounding box of the layer content.
+     * If the layer graphic is an SVGGraphicsElement, use getBBox().
+     * Otherwise, use getBoundingClientRect() relative to the container.
+     */
+    getBBox(): {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    };
     getVisualElements(): T[];
     cloneVisualElements(element: Element, deep?: boolean): Element;
     getDatum(elem: Element): any;
     join(rightTable: any[], joinKey: string): any[];
     preUpdate(): void;
     postUpdate(): void;
+    onUpdate(listener: (layer: Layer<T>) => void): void;
     picking(options: helpers.ArbitraryQuery): T[];
     isPointInPolygon(point: {
         x: number;

@@ -51,7 +51,7 @@ export default class Interactor {
     setActions(actions: InteractorInnerAction[]): void;
     _parseEvent(event: string): any[];
     getAcceptEvents(): string[];
-    dispatch(event: string | Event, layer?: Layer<any>): Promise<boolean>;
+    dispatch(event: string | Event, layer?: Layer<any>, pickingResult?: any[]): Promise<boolean>;
     preUse(instrument: Instrument): void;
     postUse(instrument: Instrument): void;
     isInstanceOf(name: string): boolean;

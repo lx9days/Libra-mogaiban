@@ -25,6 +25,8 @@ type InteractionFlowOption = {
 type InteractionBuildTemplate = {
   inherit: string;
   name?: string;
+  priority?: number;
+  stopPropagation?: boolean;
   layers?: (Layer<any> | { layer: Layer<any>; options: any })[];
   sharedVar?: { [varName: string]: any };
   remove?: { find: string; cascade?: boolean }[];
@@ -67,6 +69,8 @@ export class Interaction {
         { constructor: Instrument },
         registeredInstruments[options.inherit],
         {
+          priority: options.priority,
+          stopPropagation: options.stopPropagation,
           sharedVar: Object.assign(
             {},
             {

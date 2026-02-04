@@ -17,6 +17,8 @@ export class Interaction {
         let instrument;
         if (options.inherit in registeredInstruments) {
             const inheritOption = Object.assign({ constructor: Instrument }, registeredInstruments[options.inherit], {
+                priority: options.priority,
+                stopPropagation: options.stopPropagation,
                 sharedVar: Object.assign({}, {
                     layers: options.layers ?? [],
                     layer: options.layers?.length == 1 ? options.layers[0] : undefined,

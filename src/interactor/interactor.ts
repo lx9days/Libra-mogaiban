@@ -147,7 +147,7 @@ export default class Interactor {
     ];
   }
 
-  async dispatch(event: string | Event, layer?: Layer<any>): Promise<boolean> {
+  async dispatch(event: string | Event, layer?: Layer<any>, pickingResult?: any[]): Promise<boolean> {
     const moveAction = this._actions.find((action) => {
       const events = action.eventStreams.map((es) => es.type);
       let inculdeEvent = false;
@@ -207,6 +207,7 @@ export default class Interactor {
               instrument: null,
               interactor: this,
               event,
+              pickingResult
             });
           } catch (e) {
             console.error(e);

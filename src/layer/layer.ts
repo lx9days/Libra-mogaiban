@@ -86,6 +86,10 @@ export default class Layer<T> {
   _preUpdate?: <T>(layer: Layer<T>) => void;
   _postUpdate?: <T>(layer: Layer<T>) => void;
 
+  _children: Layer<any>[] = [];
+  _parent: Layer<any> | null = null;
+  _updateListeners: ((layer: Layer<T>) => void)[] = [];
+
   [helpers.LibraSymbol] = true;
 
   constructor(baseName: string, options: LayerInitOption) {
@@ -117,12 +121,91 @@ export default class Layer<T> {
     instanceLayers.push(this);
     this._postInitialize && this._postInitialize.call(this, this);
   }
+
+  setOffset(x: number, y: number) {
+    if (
+      this._graphic &&
+      (this._graphic as unknown as Element).setAttribute
+    ) {
+      (this._graphic as unknown as Element).setAttribute(
+        "transform",
+        `translate(${x},${y})`
+      );
+    }
+    // Update _offset cache if present (fixes D3Layer viewport issue)
+    if (Object.prototype.hasOwnProperty.call(this, "_offset")) {
+      (this as any)._offset = { x, y };
+    }
+  }
+
+  setOffsetCascade(x: number, y: number) {
+    this.setOffset(x, y);
+    this._children.forEach((child) => {
+      child.setOffset(x, y);
+      
+    });
+  }
+
+  destroy() {
+    if (this._graphic) {
+      const elem = this._graphic as unknown as Element;
+      if (elem.remove) {
+        elem.remove();
+      } else if (elem.parentNode) {
+        elem.parentNode.removeChild(elem);
+      }
+    }
+
+    const index = instanceLayers.indexOf(this);
+    if (index > -1) {
+      instanceLayers.splice(index, 1);
+    }
+
+    if (siblingLayers.has(this)) {
+      const siblings = siblingLayers.get(this);
+      if (siblings && this._name in siblings) {
+        delete siblings[this._name];
+      }
+      siblingLayers.delete(this);
+    }
+
+    if (orderLayers.has(this)) {
+      const orders = orderLayers.get(this);
+      if (orders && this._name in orders) {
+        delete orders[this._name];
+      }
+      orderLayers.delete(this);
+    }
+  }
+
   getGraphic(): T {
     return this._graphic;
   }
   getContainerGraphic(): HTMLElement {
     return this._container;
   }
+  
+  /**
+   * Get the bounding box of the layer content.
+   * If the layer graphic is an SVGGraphicsElement, use getBBox().
+   * Otherwise, use getBoundingClientRect() relative to the container.
+   */
+  getBBox(): { x: number; y: number; width: number; height: number } {
+    if (this._graphic instanceof SVGGraphicsElement) {
+      return this._graphic.getBBox();
+    } else if (this._graphic instanceof HTMLElement) {
+      const rect = this._graphic.getBoundingClientRect();
+      const containerRect = this._container.getBoundingClientRect();
+      return {
+        x: rect.left - containerRect.left,
+        y: rect.top - containerRect.top,
+        width: rect.width,
+        height: rect.height,
+      };
+    }
+    return { x: 0, y: 0, width: 0, height: 0 };
+  }
+
   getVisualElements(): T[] {
     return [];
   }
@@ -239,6 +322,10 @@ export default class Layer<T> {
   }
   postUpdate() {
     this._postUpdate && this._postUpdate.call(this, this);
+    this._updateListeners.forEach((listener) => listener(this));
+  }
+  onUpdate(listener: (layer: Layer<T>) => void) {
+    this._updateListeners.push(listener);
   }
   picking(options: helpers.ArbitraryQuery): T[] {
     return [];
@@ -312,12 +399,21 @@ export default class Layer<T> {
     }
     const siblings = siblingLayers.get(this);
     if (!(siblingLayerName in siblings)) {
+      const baseOptions = { ...this._userOptions };
+      const runtimeOffset = (this as any)._offset;
+      if (runtimeOffset) {
+        (baseOptions as any).offset = runtimeOffset;
+      }
       const layer = Layer.initialize(this._baseName, {
-        ...this._userOptions,
+        ...baseOptions,
         name: siblingLayerName,
         group: "",
         redraw() {},
       });
+      // Set up parent-child relationship
+      layer._parent = this;
+      this._children.push(layer);
+      
       siblings[siblingLayerName] = layer;
       siblingLayers.set(layer, siblings);
       const graphic = siblings[siblingLayerName].getGraphic();

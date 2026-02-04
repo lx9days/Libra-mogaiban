@@ -1,6 +1,6 @@
 import Instrument from "./instrument";
 import GraphicalTransformer from "../transformer";
-import { getTransform } from "../helpers";
+import { getTransform, checkModifier } from "../helpers";
 import * as d3 from "d3";
 import Command from "../command/command";
 Instrument.register("HoverInstrument", {
@@ -8,7 +8,11 @@ Instrument.register("HoverInstrument", {
     interactors: ["MousePositionInteractor", "TouchPositionInteractor"],
     on: {
         hover: [
-            async ({ event, layer, instrument }) => {
+            async ({ event, layer, instrument, pickingResult }) => {
+                // console.log("[HoverInstrument Debug]", pickingResult && pickingResult.length > 0 ? "Hit Element" : "Hit Empty", pickingResult);
+                const modifierKey = instrument.getSharedVar("modifierKey");
+                if (!checkModifier(event, modifierKey))
+                    return;
                 if (event.changedTouches)
                     event = event.changedTouches[0];
                 const services = instrument.services.find("SelectionService");
@@ -18,40 +22,39 @@ Instrument.register("HoverInstrument", {
                     y: event.clientY,
                     offsetx: event.offsetX,
                     offsety: event.offsetY,
-                    // scaleX: instrument.getSharedVar("scaleX"),
                 }, { layer });
-                
-                // debugger
-                // console.log("from HoverInstrument",{
-                //     event,
-                //     x: event.clientX,
-                //     y: event.clientY,
-                //     offsetx: event.offsetX,
-                //     offsety: event.offsetY,
-                //     scaleX: instrument.getSharedVar("scaleX"),
-                // });
-                // debugger
-                
                 const transformers = instrument.transformers;
                 transformers.setSharedVars({ cx: event.clientX, cy: event.clientY });
             },
         ],
         click: [Command.initialize("Log", { execute() { } })],
     },
-    postInitialize: (instrument) => {
-        instrument.services.add("SurfacePointSelectionService", {
-            // layer,
-            sharedVar: {
-                deepClone: instrument.getSharedVar("deepClone"),
-                highlightColor: instrument.getSharedVar("highlightColor"),
-                highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
-                tooltip: instrument.getSharedVar("tooltip"),
-            },
-        });
-    },
+    // postInitialize: (instrument) => {
+    //   instrument.services.add("SurfacePointSelectionService", {
+    //     // layer,
+    //     sharedVar: {
+    //       deepClone: instrument.getSharedVar("deepClone"),
+    //       highlightColor: instrument.getSharedVar("highlightColor"),
+    //       highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
+    //       tooltip: instrument.getSharedVar("tooltip"),
+    //     },
+    //   });
+    // },
     preAttach: (instrument, layer) => {
+        if (layer.onUpdate) {
+            layer.onUpdate((layer) => {
+                const services = instrument.services.find("SelectionService");
+                if (services) {
+                    // Force clear result and re-evaluate
+                    services._result = [];
+                    services._evaluate(layer);
+                }
+            });
+        }
+        const renderSelection = instrument.getSharedVar("renderSelection");
         instrument.services.add("SurfacePointSelectionService", {
             layer,
+            renderSelection,
             sharedVar: {
                 deepClone: instrument.getSharedVar("deepClone"),
                 highlightColor: instrument.getSharedVar("highlightColor"),
@@ -69,6 +72,12 @@ Instrument.register("ClickInstrument", {
         dragstart: [
             async (options) => {
                 let { event, layer, instrument } = options;
+                const modifierKey = instrument.getSharedVar("modifierKey");
+                if (!checkModifier(event, modifierKey)) {
+                    instrument.setSharedVar("interactionValid", false);
+                    return;
+                }
+                instrument.setSharedVar("interactionValid", true);
                 if (event.changedTouches)
                     event = event.changedTouches[0];
                 instrument.setSharedVar("x", event.clientX);
@@ -90,6 +99,11 @@ Instrument.register("ClickInstrument", {
         dragend: [
             async (options) => {
                 let { event, layer, instrument } = options;
+                if (!instrument.getSharedVar("interactionValid"))
+                    return;
+                const modifierKey = instrument.getSharedVar("modifierKey");
+                if (!checkModifier(event, modifierKey))
+                    return;
                 if (event.changedTouches)
                     event = event.changedTouches[0];
                 const services = instrument.services.find("SelectionService");
@@ -153,9 +167,30 @@ Instrument.register("BrushInstrument", {
     on: {
         dragstart: [
             async ({ event, layer, instrument }) => {
+                const modifierKey = instrument.getSharedVar("modifierKey");
+                if (!checkModifier(event, modifierKey)) {
+                    instrument.setSharedVar("interactionValid", false);
+                    return;
+                }
+                instrument.setSharedVar("interactionValid", true);
                 if (event.changedTouches)
                     event = event.changedTouches[0];
                 const services = instrument.services.find("RectSelectionService");
+                // Initialize selection history if not present
+                let selectionHistory = instrument.getSharedVar("selectionHistory");
+                if (!selectionHistory) {
+                    selectionHistory = [];
+                    instrument.setSharedVar("selectionHistory", selectionHistory);
+                }
+                const remnantKey = instrument.getSharedVar("remnantKey");
+                // Clear history if NOT merging.
+                // Merging happens only if remnantKey is defined AND pressed.
+                // If remnantKey is undefined (default single selection) or not pressed (transient/new selection), clear history.
+                const isMerging = remnantKey && checkModifier(event, remnantKey);
+                if (!isMerging) {
+                    selectionHistory = [];
+                    instrument.setSharedVar("selectionHistory", selectionHistory);
+                }
                 services.setSharedVars({
                     x: event.clientX,
                     y: event.clientY,
@@ -169,6 +204,7 @@ Instrument.register("BrushInstrument", {
                     startoffsety: event.offsetY,
                     currentx: event.clientX,
                     currenty: event.clientY,
+                    selectionHistory: selectionHistory, // Pass history to service
                 }, { layer });
                 const x = event.offsetX;
                 const y = event.offsetY;
@@ -203,6 +239,8 @@ Instrument.register("BrushInstrument", {
         drag: [
             async (options) => {
                 let { event, layer, instrument } = options;
+                if (!instrument.getSharedVar("interactionValid"))
+                    return;
                 if (event.changedTouches)
                     event = event.changedTouches[0];
                 const startx = instrument.getSharedVar("startx");
@@ -211,10 +249,13 @@ Instrument.register("BrushInstrument", {
                 const startoffsety = instrument.getSharedVar("startoffsety");
                 const x = Math.min(startx, event.clientX);
                 const y = Math.min(starty, event.clientY);
-                const offsetx = Math.min(startoffsetx, event.offsetX);
-                const offsety = Math.min(startoffsety, event.offsetY);
-                const width = Math.abs(event.clientX - startx);
-                const height = Math.abs(event.clientY - starty);
+                // Use delta from startx/starty to calculate offset, avoiding offsetX inconsistencies due to event target changes
+                const diffx = event.clientX - startx;
+                const diffy = event.clientY - starty;
+                const offsetx = Math.min(startoffsetx, startoffsetx + diffx);
+                const offsety = Math.min(startoffsety, startoffsety + diffy);
+                const width = Math.abs(diffx);
+                const height = Math.abs(diffy);
                 // selection, currently service use client coordinates, but coordinates relative to the layer maybe more appropriate.
                 const services = instrument.services.find("SelectionService");
                 services.setSharedVars({
@@ -226,10 +267,72 @@ Instrument.register("BrushInstrument", {
                     height,
                     currentx: event.clientX,
                     currenty: event.clientY,
+                    remnantKey: instrument.getSharedVar("remnantKey"),
+                    event: event,
                 }, { layer });
             },
         ],
-        dragend: [Command.initialize("Log", { execute() { } })],
+        dragend: [
+            async (options) => {
+                const { event, layer, instrument } = options;
+                const remnantKey = instrument.getSharedVar("remnantKey");
+                const inputEvent = event.changedTouches ? event.changedTouches[0] : event;
+                let selectionHistory = instrument.getSharedVar("selectionHistory") || [];
+                if (remnantKey && !checkModifier(event, remnantKey)) {
+                    // If remnantKey is set but not pressed, clear the selection (same logic as dragabort)
+                    // Also clear history as we are resetting
+                    selectionHistory = [];
+                    instrument.setSharedVar("selectionHistory", selectionHistory);
+                    const services = instrument.services.find("RectSelectionService");
+                    services.setSharedVars({
+                        x: 0,
+                        y: 0,
+                        offsetx: 0,
+                        offsety: 0,
+                        width: 0,
+                        height: 0,
+                        currentx: inputEvent.clientX,
+                        currenty: inputEvent.clientY,
+                        endx: inputEvent.clientX,
+                        endy: inputEvent.clientY,
+                        selectionHistory: [],
+                    }, { layer });
+                    instrument.emit("brushabort", options);
+                }
+                else {
+                    // Default behavior: keep selection
+                    // Save current selection to history
+                    // We need to calculate the final rect relative to the start point
+                    const startx = instrument.getSharedVar("startx");
+                    const starty = instrument.getSharedVar("starty");
+                    const startoffsetx = instrument.getSharedVar("startoffsetx");
+                    const startoffsety = instrument.getSharedVar("startoffsety");
+                    const x = Math.min(startx, inputEvent.clientX);
+                    const y = Math.min(starty, inputEvent.clientY);
+                    // Use delta from startx/starty to calculate offset, avoiding offsetX inconsistencies
+                    const diffx = inputEvent.clientX - startx;
+                    const diffy = inputEvent.clientY - starty;
+                    const offsetx = Math.min(startoffsetx, startoffsetx + diffx);
+                    const offsety = Math.min(startoffsety, startoffsety + diffy);
+                    const width = Math.abs(diffx);
+                    const height = Math.abs(diffy);
+                    const layerOffsetX = layer._offset?.x ?? 0;
+                    const layerOffsetY = layer._offset?.y ?? 0;
+                    // Add to history
+                    selectionHistory.push({
+                        x,
+                        y,
+                        offsetx: offsetx - layerOffsetX,
+                        offsety: offsety - layerOffsetY,
+                        width,
+                        height
+                    });
+                    instrument.setSharedVar("selectionHistory", selectionHistory);
+                    console.log("[BrushInstrument] Selection History:", selectionHistory);
+                    Command.initialize("Log", { execute() { } }).execute(options);
+                }
+            },
+        ],
         dragabort: [
             async (options) => {
                 let { event, layer, instrument } = options;
@@ -254,7 +357,20 @@ Instrument.register("BrushInstrument", {
     },
     preAttach: (instrument, layer) => {
         // create selectionLayer first
-        layer.getLayerFromQueue("selectionLayer");
+        const selectionLayer = layer.getLayerFromQueue("selectionLayer");
+        // Sync selection layer with parent layer updates
+        if (layer.onUpdate) {
+            layer.onUpdate(() => {
+                console.log("[BrushInstrument] Parent layer updated. Re-evaluating selection...");
+                const graphic = selectionLayer.getGraphic();
+                if (graphic)
+                    graphic.innerHTML = "";
+                const selectionService = instrument.services.find("RectSelectionService");
+                if (selectionService) {
+                    selectionService._evaluate(layer);
+                }
+            });
+        }
         instrument.services.add("RectSelectionService", {
             layer,
             sharedVar: {
@@ -267,6 +383,9 @@ Instrument.register("BrushInstrument", {
                         highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
                     }
                     : {}),
+                ...(instrument.getSharedVar("brushStyle")
+                    ? { brushStyle: instrument.getSharedVar("brushStyle") }
+                    : {}),
             },
         });
     },
@@ -277,6 +396,12 @@ Instrument.register("BrushXInstrument", {
     on: {
         dragstart: [
             async ({ event, layer, instrument }) => {
+                const modifierKey = instrument.getSharedVar("modifierKey");
+                if (!checkModifier(event, modifierKey)) {
+                    instrument.setSharedVar("interactionValid", false);
+                    return;
+                }
+                instrument.setSharedVar("interactionValid", true);
                 if (event.changedTouches)
                     event = event.changedTouches[0];
                 const services = instrument.services;
@@ -295,6 +420,8 @@ Instrument.register("BrushXInstrument", {
         drag: [
             async (options) => {
                 let { event, layer, instrument } = options;
+                if (!instrument.getSharedVar("interactionValid"))
+                    return;
                 if (event.changedTouches)
                     event = event.changedTouches[0];
                 const startx = instrument.getSharedVar("startx");
@@ -331,12 +458,30 @@ Instrument.register("BrushXInstrument", {
         ],
     },
     preAttach: (instrument, layer) => {
+        // create selectionLayer first
+        const selectionLayer = layer.getLayerFromQueue("selectionLayer");
+        // Sync selection layer with parent layer updates
+        if (layer.onUpdate) {
+            layer.onUpdate(() => {
+                console.log("[BrushXInstrument] Parent layer updated. Re-evaluating selection...");
+                const graphic = selectionLayer.getGraphic();
+                if (graphic)
+                    graphic.innerHTML = "";
+                const selectionService = instrument.services.find("RectSelectionService");
+                if (selectionService) {
+                    selectionService._evaluate(layer);
+                }
+            });
+        }
         instrument.services.add("RectSelectionService", {
             layer,
             sharedVar: {
                 deepClone: instrument.getSharedVar("deepClone"),
                 highlightColor: instrument.getSharedVar("highlightColor"),
                 highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
+                ...(instrument.getSharedVar("brushStyle")
+                    ? { brushStyle: instrument.getSharedVar("brushStyle") }
+                    : {}),
             },
         });
     },
@@ -347,6 +492,12 @@ Instrument.register("BrushYInstrument", {
     on: {
         dragstart: [
             async ({ event, layer, instrument }) => {
+                const modifierKey = instrument.getSharedVar("modifierKey");
+                if (!checkModifier(event, modifierKey)) {
+                    instrument.setSharedVar("interactionValid", false);
+                    return;
+                }
+                instrument.setSharedVar("interactionValid", true);
                 if (event.changedTouches)
                     event = event.changedTouches[0];
                 const services = instrument.services;
@@ -365,6 +516,8 @@ Instrument.register("BrushYInstrument", {
         drag: [
             async (options) => {
                 let { event, layer, instrument } = options;
+                if (!instrument.getSharedVar("interactionValid"))
+                    return;
                 if (event.changedTouches)
                     event = event.changedTouches[0];
                 const starty = instrument.getSharedVar("starty");
@@ -401,124 +554,34 @@ Instrument.register("BrushYInstrument", {
         ],
     },
     preAttach: (instrument, layer) => {
+        // create selectionLayer first
+        const selectionLayer = layer.getLayerFromQueue("selectionLayer");
+        // Sync selection layer with parent layer updates
+        if (layer.onUpdate) {
+            layer.onUpdate(() => {
+                console.log("[BrushYInstrument] Parent layer updated. Re-evaluating selection...");
+                const graphic = selectionLayer.getGraphic();
+                if (graphic)
+                    graphic.innerHTML = "";
+                const selectionService = instrument.services.find("RectSelectionService");
+                if (selectionService) {
+                    selectionService._evaluate(layer);
+                }
+            });
+        }
         instrument.services.add("RectSelectionService", {
             layer,
             sharedVar: {
                 deepClone: instrument.getSharedVar("deepClone"),
                 highlightColor: instrument.getSharedVar("highlightColor"),
                 highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
+                ...(instrument.getSharedVar("brushStyle")
+                    ? { brushStyle: instrument.getSharedVar("brushStyle") }
+                    : {}),
             },
         });
     },
 });
-// Instrument.register("BrushYInstrument", {
-//     constructor: Instrument,
-//     interactors: ["MouseTraceInteractor", "TouchTraceInteractor"],
-//     on: {
-//         dragstart: [
-//             async ({ event, layer, instrument }) => {
-//                 if (event.changedTouches)
-//                     event = event.changedTouches[0];
-//                 const services = instrument.services.find("RectSelectionService");
-//                 services.setSharedVar("y", event.clientY, { layer });
-//                 services.setSharedVar("height", 1, { layer });
-//                 services.setSharedVar("starty", event.clientY, { layer });
-//                 services.setSharedVar("currenty", event.clientY, { layer });
-//                 instrument.setSharedVar("starty", event.clientY);
-//                 instrument.transformers
-//                     .find("TransientRectangleTransformer")
-//                     .setSharedVars({
-//                     y: 0,
-//                     height: 1,
-//                 });
-//             },
-//         ],
-//         drag: [
-//             Command.initialize("drawBrushAndSelect", {
-//                 continuous: true,
-//                 execute: async ({ event, layer, instrument }) => {
-//                     if (event.changedTouches)
-//                         event = event.changedTouches[0];
-//                     const starty = instrument.getSharedVar("starty");
-//                     const y = Math.min(starty, event.clientY);
-//                     const height = Math.abs(event.clientY - starty);
-//                     // selection, currently service use client coordinates, but coordinates relative to the layer maybe more appropriate.
-//                     const services = instrument.services.find("SelectionService");
-//                     services.setSharedVar("y", y, { layer });
-//                     services.setSharedVar("height", height, {
-//                         layer,
-//                     });
-//                     services.setSharedVar("currenty", event.clientY, { layer });
-//                     await Promise.all(instrument.services.results);
-//                 },
-//                 feedback: [
-//                     async ({ event, layer, instrument }) => {
-//                         const starty = instrument.getSharedVar("starty");
-//                         const y = Math.min(starty, event.clientY);
-//                         const height = Math.abs(event.clientY - starty);
-//                         // draw brush
-//                         const baseBBox = (layer.getGraphic().querySelector(".ig-layer-background") ||
-//                             layer.getGraphic()).getBoundingClientRect();
-//                         instrument.transformers
-//                             .find("TransientRectangleTransformer")
-//                             .setSharedVars({
-//                             y: y - baseBBox.top,
-//                             height: height,
-//                         });
-//                     },
-//                     async ({ instrument }) => {
-//                         instrument.transformers.find("HighlightSelection").setSharedVars({
-//                             highlightAttrValues: instrument.getSharedVar("highlightAttrValues") || {},
-//                         });
-//                     },
-//                 ],
-//             }),
-//         ],
-//         dragabort: [
-//             async ({ event, layer, instrument }) => {
-//                 if (event.changedTouches)
-//                     event = event.changedTouches[0];
-//                 const services = instrument.services.find("SelectionService");
-//                 services.setSharedVar("y", 0, { layer });
-//                 services.setSharedVar("height", 0, { layer });
-//                 services.setSharedVar("currenty", event.clientY, { layer });
-//                 services.setSharedVar("endy", event.clientY, { layer });
-//                 instrument.transformers
-//                     .find("TransientRectangleTransformer")
-//                     .setSharedVars({
-//                     y: 0,
-//                     height: 0,
-//                 });
-//             },
-//         ],
-//     },
-//     preAttach: (instrument, layer) => {
-//         const x = instrument.getSharedVar("x") ?? 0;
-//         const width = instrument.getSharedVar("width") ?? layer._width;
-//         const services = instrument.services.add("RectSelectionService", { layer });
-//         const bbox = layer.getGraphic().getBoundingClientRect();
-//         services.setSharedVar("x", bbox.x + x);
-//         services.setSharedVar("width", width);
-//         instrument.transformers
-//             .add("TransientRectangleTransformer", {
-//             transient: true,
-//             layer: layer.getLayerFromQueue("transientLayer"),
-//             sharedVar: {
-//                 x: 0,
-//                 y: 0,
-//                 width: width,
-//                 height: 0,
-//                 fill: "#000",
-//                 opacity: 0.3,
-//             },
-//         })
-//             .add("HighlightSelection", {
-//             transient: true,
-//             layer: layer.getLayerFromQueue("selectionLayer"),
-//             sharedVar: { highlightAttrValues: {} },
-//         });
-//     },
-// });
 Instrument.register("HelperLineInstrument", {
     constructor: Instrument,
     sharedVar: { orientation: ["horizontal"] },
@@ -656,6 +719,21 @@ Instrument.register("DataBrushInstrument", {
         ],
     },
     preAttach: async (instrument, layer) => {
+        // create selectionLayer first
+        const selectionLayer = layer.getLayerFromQueue("selectionLayer");
+        // Sync selection layer with parent layer updates
+        if (layer.onUpdate) {
+            layer.onUpdate(() => {
+                console.log("[DataBrushInstrument] Parent layer updated. Re-evaluating selection...");
+                const graphic = selectionLayer.getGraphic();
+                if (graphic)
+                    graphic.innerHTML = "";
+                const selectionService = instrument.services.find("Quantitative2DSelectionService");
+                if (selectionService) {
+                    selectionService._evaluate(layer);
+                }
+            });
+        }
         const scaleX = instrument.getSharedVar("scaleX");
         const scaleY = instrument.getSharedVar("scaleY");
         const attrNameX = instrument.getSharedVar("attrNameX");
@@ -792,6 +870,21 @@ Instrument.register("DataBrushXInstrument", {
         ],
     },
     preAttach: (instrument, layer) => {
+        // create selectionLayer first
+        const selectionLayer = layer.getLayerFromQueue("selectionLayer");
+        // Sync selection layer with parent layer updates
+        if (layer.onUpdate) {
+            layer.onUpdate(() => {
+                console.log("[DataBrushXInstrument] Parent layer updated. Re-evaluating selection...");
+                const graphic = selectionLayer.getGraphic();
+                if (graphic)
+                    graphic.innerHTML = "";
+                const selectionService = instrument.services.find("QuantitativeSelectionService");
+                if (selectionService) {
+                    selectionService._evaluate(layer);
+                }
+            });
+        }
         //const y = instrument.getSharedVar("y") ?? 0;
         const scaleX = instrument.getSharedVar("scaleX");
         const height = instrument.getSharedVar("height") ?? layer._height;
@@ -985,6 +1078,12 @@ Instrument.register("PanInstrument", {
     on: {
         dragstart: [
             ({ layer, event, instrument }) => {
+                const modifierKey = instrument.getSharedVar("modifierKey");
+                if (!checkModifier(event, modifierKey)) {
+                    instrument.setSharedVar("interactionValid", false);
+                    return;
+                }
+                instrument.setSharedVar("interactionValid", true);
                 if (event.changedTouches)
                     event = event.changedTouches[0];
                 instrument.setSharedVar("startx", event.clientX);
@@ -1011,6 +1110,8 @@ Instrument.register("PanInstrument", {
         ],
         drag: [
             async ({ layer, event, instrument, transformer }) => {
+                if (!instrument.getSharedVar("interactionValid"))
+                    return;
                 if (event.changedTouches)
                     event = event.changedTouches[0];
                 let transformers = instrument.transformers;
@@ -1186,6 +1287,9 @@ Instrument.register("GeometricZoomInstrument", {
     on: {
         wheel: [
             ({ layer, instrument, event }) => {
+                const modifierKey = instrument.getSharedVar("modifierKey");
+                if (!checkModifier(event, modifierKey))
+                    return;
                 const layerGraphic = layer.getGraphic();
                 const layerRoot = d3.select(layerGraphic);
                 let transformers = instrument.transformers;
@@ -1758,3 +1862,99 @@ Instrument.register("ZoomXInstrument", {
 //   const regex = /.*matrix\t*(\t*\t*).*/;
 //   return tran
 // }
+Instrument.register("ReorderInstrument", {
+    constructor: Instrument,
+    interactors: ["MouseTraceInteractor", "TouchTraceInteractor"],
+    on: {
+        dragstart: [
+            ({ layer, event, instrument }) => {
+                if (event.changedTouches)
+                    event = event.changedTouches[0];
+                instrument.services.setSharedVars({
+                    x: event.clientX,
+                    y: event.clientY,
+                    startx: event.clientX,
+                    starty: event.clientY,
+                    currentx: event.clientX,
+                    currenty: event.clientY,
+                    offsetx: event.offsetX,
+                    offsety: event.offsetY,
+                    offset: { x: 0, y: 0 },
+                    skipPicking: false,
+                }, { layer });
+            },
+        ],
+        drag: [
+            ({ layer, event, instrument }) => {
+                if (event.changedTouches)
+                    event = event.changedTouches[0];
+                const offsetX = event.clientX - instrument.services.getSharedVar("x", { layer })[0];
+                const offsetY = event.clientY - instrument.services.getSharedVar("y", { layer })[0];
+                instrument.setSharedVar("offsetx", offsetX, { layer });
+                instrument.setSharedVar("offsety", offsetY, { layer });
+                instrument.services.setSharedVars({
+                    x: event.clientX,
+                    y: event.clientY,
+                    currentx: event.clientX,
+                    currenty: event.clientY,
+                    offsetx: event.offsetX,
+                    offsety: event.offsetY,
+                    offset: { x: offsetX, y: offsetY },
+                    skipPicking: true,
+                }, { layer });
+            },
+        ],
+        dragend: [
+            ({ layer, event, instrument }) => {
+                if (event.changedTouches)
+                    event = event.changedTouches[0];
+                const offsetX = event.clientX - instrument.services.getSharedVar("x", { layer })[0];
+                const offsetY = event.clientY - instrument.services.getSharedVar("y", { layer })[0];
+                instrument.services.setSharedVars({
+                    x: 0,
+                    y: 0,
+                    currentx: event.clientX,
+                    currenty: event.clientY,
+                    endx: event.clientX,
+                    endy: event.clientY,
+                    offsetx: 0,
+                    offsety: 0,
+                    offset: { x: 0, y: 0 },
+                    skipPicking: false,
+                }, { layer });
+                instrument.setSharedVar("offsetx", offsetX, { layer });
+                instrument.setSharedVar("offsety", offsetY, { layer });
+            },
+            Command.initialize("Log", { execute() { } }),
+        ],
+        dragabort: [
+            (options) => {
+                let { layer, event, instrument } = options;
+                if (event.changedTouches)
+                    event = event.changedTouches[0];
+                instrument.services.setSharedVars({
+                    x: 0,
+                    y: 0,
+                    currentx: event.clientX,
+                    currenty: event.clientY,
+                    endx: 0,
+                    endy: 0,
+                    offsetx: 0,
+                    offsety: 0,
+                    skipPicking: false,
+                }, { layer });
+                instrument.emit("dragconfirm", {
+                    ...options,
+                    self: options.instrument,
+                });
+            },
+        ],
+    },
+    preAttach: (instrument, layer) => {
+        // Create default SM on layer
+        instrument.services.add("SurfacePointSelectionService", {
+            layer,
+            sharedVar: { deepClone: instrument.getSharedVar("deepClone") },
+        });
+    },
+});

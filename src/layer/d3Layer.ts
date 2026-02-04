@@ -309,6 +309,9 @@ export default class D3Layer extends Layer<SVGElement> {
       ) as SVGElement[];
     } else if (options.type === helpers.ShapeQueryType.Rect) {
       const { x, y, width, height } = options;
+      if (!isFinite(x) || !isFinite(y) || !isFinite(width) || !isFinite(height)) {
+        return [];
+      }
       const x0 = Math.min(x, x + width) - svgBCR.left,
         y0 = Math.min(y, y + height) - svgBCR.top,
         absWidth = Math.abs(width),

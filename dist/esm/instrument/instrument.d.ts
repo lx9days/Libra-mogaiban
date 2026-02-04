@@ -29,6 +29,8 @@ type InstrumentInitOption = {
     postInitialize?: (instrument: Instrument) => void;
     preAttach?: (instrument: Instrument, layer: Layer<any>) => void;
     postUse?: (instrument: Instrument, layer: Layer<any>) => void;
+    priority?: number;
+    stopPropagation?: boolean;
     [param: string]: any;
 };
 export type InstrumentInitTemplate = InstrumentInitOption & {
@@ -67,6 +69,8 @@ export default class Instrument {
     _linkCache: {
         [linkProp: string]: any;
     };
+    _priority: number;
+    _stopPropagation: boolean;
     _preInitialize?: (instrument: Instrument) => void;
     _postInitialize?: (instrument: Instrument) => void;
     _preAttach?: (instrument: Instrument, layer: Layer<any>) => void;

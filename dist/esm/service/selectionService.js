@@ -8,16 +8,22 @@ export default class SelectionService extends Service {
             resultAlias: options?.resultAlias ?? "result",
         });
         this._currentDimension = [];
-        this._transformers.push(GraphicalTransformer.initialize("SelectionTransformer", {
-            transient: true,
-            sharedVar: {
-                [this._resultAlias]: [],
-                layer: null,
-                highlightColor: options?.sharedVar?.highlightColor,
-                highlightAttrValues: options?.sharedVar?.highlightAttrValues,
-                tooltip: options?.sharedVar?.tooltip,
-            },
-        }));
+        if (options?.renderSelection !== false) {
+            console.log("[SelectionService] Attaching SelectionTransformer to", this._baseName, this);
+            this._transformers.push(GraphicalTransformer.initialize("SelectionTransformer", {
+                transient: true,
+                sharedVar: {
+                    [this._resultAlias]: [],
+                    layer: null,
+                    highlightColor: options?.sharedVar?.highlightColor,
+                    highlightAttrValues: options?.sharedVar?.highlightAttrValues,
+                    tooltip: options?.sharedVar?.tooltip,
+                },
+            }));
+        }
+        else {
+            console.log("[SelectionService] No SelectionTransformer to", this._baseName, this);
+        }
         this._selectionMapping = new Map();
         Object.entries({
             ...(this._userOptions?.query?.attrName
@@ -85,6 +91,9 @@ export default class SelectionService extends Service {
                     y: y - bbox.top,
                     width: width,
                     height: height,
+                    ...(this._sharedVar.brushStyle
+                        ? { brushStyle: this._sharedVar.brushStyle }
+                        : {}),
                 });
             }
         }); // transient shape
@@ -107,10 +116,31 @@ export default class SelectionService extends Service {
             return;
         if (!this._sharedVar.skipPicking) {
             this._oldResult = this._result;
-            this._result = layer.picking({
+            const newResult = layer.picking({
                 ...this._userOptions.query,
                 ...this._sharedVar,
             });
+            // Check for remnantKey to enable multi-selection (merge behavior)
+            const remnantKey = this._sharedVar.remnantKey;
+            const event = this._sharedVar.event || window.event; // Try to get event from sharedVar or global
+            let isMerging = false;
+            if (remnantKey && event && helpers.checkModifier(event, remnantKey)) {
+                isMerging = true;
+            }
+            if (isMerging && this._result) {
+                // Merge and deduplicate: union of _result and newResult
+                const combined = [...this._result, ...newResult];
+                this._result = [...new Set(combined)];
+            }
+            else {
+                this._result = newResult;
+            }
+            if (this.isInstanceOf("SurfacePointSelectionService")) {
+                // console.log(
+                //   "[SurfacePointSelectionService] picking result:",
+                //   this._result
+                // );
+            }
         }
         const selectionLayer = layer
             .getLayerFromQueue("selectionLayer")
@@ -141,6 +171,7 @@ export default class SelectionService extends Service {
             });
             this._services.forEach((service) => {
                 service.setSharedVars({
+                    name: this._baseName,
                     ...this._sharedVar,
                     [this._resultAlias]: resultNodes,
                 });
@@ -149,7 +180,6 @@ export default class SelectionService extends Service {
         else {
             this._services.forEach((service) => {
                 service.setSharedVars({
-                    name:this._baseName,
                     ...this._sharedVar,
                     [this._resultAlias]: this._result
                         ? this._result.map((node) => layer.cloneVisualElements(node, false))
@@ -160,17 +190,27 @@ export default class SelectionService extends Service {
                 .filter((t) => !t.isInstanceOf("draw-shape"))
                 .forEach((transformer) => {
                 transformer.setSharedVars({
-                    name:this._baseName,
+                    name: this._baseName,
                     ...this._sharedVar,
                     x: this._sharedVar.offsetx ?? this._sharedVar.x,
                     y: this._sharedVar.offsety ?? this._sharedVar.y,
-                    // scaleX: this._sharedVar.scaleX,
                     layer: layer.getLayerFromQueue("selectionLayer"),
                     [this._resultAlias]: this._result
                         ? this._result.map((node) => layer.cloneVisualElements(node, false))
                         : [],
                 });
             });
+            // Pass selectionHistory to TransientRectangleTransformer
+            const selectionHistory = this._sharedVar.selectionHistory;
+            if (selectionHistory) {
+                this._transformers
+                    .filter((t) => t.isInstanceOf("TransientRectangleTransformer"))
+                    .forEach((transformer) => {
+                    transformer.setSharedVars({
+                        selectionHistory: selectionHistory,
+                    });
+                });
+            }
         }
         if (this._sharedVar.scaleX &&
             this._sharedVar.scaleX.invert &&
@@ -353,16 +393,6 @@ Service.register("SurfacePointSelectionService", {
         y: 0,
     },
 });
-// Service.register("IntersectionService", {
-//     constructor: SelectionService,
-//     query: {
-//         baseOn: helpers.QueryType.Shape,
-//         type: helpers.ShapeQueryType.SurfacePoint,
-//         x: 0,
-//         y: 0,
-//     },
-
-// });
 Service.register("PointSelectionService", {
     constructor: SelectionService,
     query: {

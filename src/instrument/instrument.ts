@@ -27,6 +27,8 @@ type InstrumentInitOption = {
   postInitialize?: (instrument: Instrument) => void;
   preAttach?: (instrument: Instrument, layer: Layer<any>) => void;
   postUse?: (instrument: Instrument, layer: Layer<any>) => void;
+  priority?: number;
+  stopPropagation?: boolean;
   [param: string]: any;
 };
 
@@ -103,6 +105,8 @@ export default class Instrument {
   _sharedVar: { [varName: string]: any };
   _transformers: GraphicalTransformer[] = [];
   _linkCache: { [linkProp: string]: any } = {};
+  _priority: number;
+  _stopPropagation: boolean;
   _preInitialize?: (instrument: Instrument) => void;
   _postInitialize?: (instrument: Instrument) => void;
   _preAttach?: (instrument: Instrument, layer: Layer<any>) => void;
@@ -127,6 +131,8 @@ export default class Instrument {
     this._services = options.services ?? [];
     this._serviceInstances = [];
     this._sharedVar = options.sharedVar ?? {};
+    this._priority = options.priority ?? 0;
+    this._stopPropagation = options.stopPropagation ?? false;
     this._transformers = options.transformers ?? [];
     if (options.interactors) {
       options.interactors.forEach((interactor) => {
@@ -488,9 +494,21 @@ export default class Instrument {
     const layers = EventDispatcher.get(layer.getContainerGraphic())
       .get(event)
       .filter(([_, layr]) => layr._order >= 0);
-    layers.sort((a, b) => b[1]._order - a[1]._order);
+if (!layers) return;
+    
+    // Sort by priority (descending) then by layer order (descending)
+    layers.sort((a, b) => {
+      const priorityA = a[3]._priority;
+      const priorityB = b[3]._priority;
+      if (priorityA !== priorityB) {
+        return priorityB - priorityA;
+      }
+      return b[1]._order - a[1]._order;
+    });
+
     let handled = false;
     for (let [inter, layr, layerOption, instrument] of layers) {
+      let pickingResult = [];
       if (e instanceof MouseEvent) {
         if (
           layr._name?.toLowerCase().replaceAll("-", "").replaceAll("_", "") ===
@@ -502,6 +520,7 @@ export default class Instrument {
           // Default is `all` for BGLayer
         } else if (!layerOption || layerOption.pointerEvents === "viewport") {
           // Default is `viewport` for layers
+          pickingResult = [];
           const maybeD3Layer = layr as any;
           if (
             maybeD3Layer._offset &&
@@ -514,11 +533,18 @@ export default class Instrument {
               e.offsetY < maybeD3Layer._offset.y ||
               e.offsetY > maybeD3Layer._offset.y + maybeD3Layer._height
             ) {
-              continue;
-            }
-          }
-        } else {
-          // Others is `visiblePainted`
+                  continue;
+                }
+              }
+              // Try picking for viewport mode to pass information
+              pickingResult = layr.picking({
+                baseOn: helpers.QueryType.Shape,
+                type: helpers.ShapeQueryType.Point,
+                x: e.clientX,
+                y: e.clientY,
+              });
+            } else {
+              // Others is `visiblePainted`
           const query = layr.picking({
             baseOn: helpers.QueryType.Shape,
             type: helpers.ShapeQueryType.Point,
@@ -526,6 +552,8 @@ export default class Instrument {
             y: e.clientY,
           });
           if (query.length <= 0 && inter._state === "start") continue;
+          
+          pickingResult = query;
 
           const maybeD3Layer = layr as any;
           if (
@@ -544,16 +572,35 @@ export default class Instrument {
           }
         }
       }
+      const modifierKey = instrument.getSharedVar("modifierKey");
+      if (e instanceof MouseEvent && !helpers.checkModifier(e, modifierKey)) {
+        continue;
+      }
       try {
-        let flag = await inter.dispatch(e, layr);
-        if (
-          flag &&
-          e instanceof MouseEvent &&
-          layerOption &&
-          layerOption.pointerEvents === "visiblePainted"
-        ) {
-          handled = true;
-          break;
+        let flag = await inter.dispatch(e, layr, pickingResult);
+        if (flag) {
+          if (helpers.globalConfig.debug) {
+            // console.log(`[Libra Debug] Instrument responded: ${instrument._name || instrument._baseName} (Priority: ${instrument._priority})(event: ${e})`);
+          }
+
+          // Check explicit stopPropagation
+          if (instrument._stopPropagation) {
+            if (helpers.globalConfig.debug) {
+              // console.warn(`[Libra Debug] Propagation stopped by high-priority instrument: ${instrument._name || instrument._baseName} (Priority: ${instrument._priority})(event: ${e})`);
+            }
+            handled = true;
+            break;
+          }
+
+          // Check visual occlusion (visiblePainted)
+          if (
+            e instanceof MouseEvent &&
+            layerOption &&
+            layerOption.pointerEvents === "visiblePainted"
+          ) {
+            handled = true;
+            break;
+          }
         }
       } catch (e) {
         console.error(e);

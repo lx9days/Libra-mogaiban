@@ -5,6 +5,10 @@ import { AllRecordingComponents } from "./history";
 
 export const LibraSymbol = Symbol("Libra");
 
+export const globalConfig = {
+  debug: true
+};
+
 export enum QueryType {
   Shape,
   Data,
@@ -605,3 +609,26 @@ export const global = {
 import("./history").then((HM) => {
   tryRegisterDynamicInstance = HM.tryRegisterDynamicInstance;
 });
+
+export function checkModifier(
+  event: MouseEvent | TouchEvent,
+  modifier: string
+): boolean {
+  if (!modifier) return true;
+  if (!(event instanceof MouseEvent)) return true;
+
+  switch (modifier.toLowerCase()) {
+    case "ctrl":
+      return event.ctrlKey;
+    case "shift":
+      return event.shiftKey;
+    case "alt":
+      return event.altKey;
+    case "meta":
+    case "cmd":
+    case "command":
+      return event.metaKey;
+    default:
+      return true;
+  }
+}

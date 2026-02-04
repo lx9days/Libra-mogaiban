@@ -3,6 +3,9 @@ import { Interactor } from "./interactor";
 import { Layer } from "./layer";
 import { AllRecordingComponents } from "./history";
 export declare const LibraSymbol: unique symbol;
+export declare const globalConfig: {
+    debug: boolean;
+};
 export declare enum QueryType {
     Shape = 0,
     Data = 1,
@@ -156,4 +159,5 @@ export declare function deepClone(obj: any): any;
 export declare const global: {
     stopTransient: boolean;
 };
+export declare function checkModifier(event: MouseEvent | TouchEvent, modifier: string): boolean;
 export {};
