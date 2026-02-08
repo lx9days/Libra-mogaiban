@@ -361,7 +361,9 @@ Instrument.register("BrushInstrument", {
         // Sync selection layer with parent layer updates
         if (layer.onUpdate) {
             layer.onUpdate(() => {
-                console.log("[BrushInstrument] Parent layer updated. Re-evaluating selection...");
+                // console.log(
+                //   "[BrushInstrument] Parent layer updated. Re-evaluating selection..."
+                // );
                 const graphic = selectionLayer.getGraphic();
                 if (graphic)
                     graphic.innerHTML = "";
@@ -463,7 +465,9 @@ Instrument.register("BrushXInstrument", {
         // Sync selection layer with parent layer updates
         if (layer.onUpdate) {
             layer.onUpdate(() => {
-                console.log("[BrushXInstrument] Parent layer updated. Re-evaluating selection...");
+                // console.log(
+                //   "[BrushXInstrument] Parent layer updated. Re-evaluating selection..."
+                // );
                 const graphic = selectionLayer.getGraphic();
                 if (graphic)
                     graphic.innerHTML = "";
@@ -559,7 +563,9 @@ Instrument.register("BrushYInstrument", {
         // Sync selection layer with parent layer updates
         if (layer.onUpdate) {
             layer.onUpdate(() => {
-                console.log("[BrushYInstrument] Parent layer updated. Re-evaluating selection...");
+                // console.log(
+                //   "[BrushYInstrument] Parent layer updated. Re-evaluating selection..."
+                // );
                 const graphic = selectionLayer.getGraphic();
                 if (graphic)
                     graphic.innerHTML = "";
@@ -724,7 +730,9 @@ Instrument.register("DataBrushInstrument", {
         // Sync selection layer with parent layer updates
         if (layer.onUpdate) {
             layer.onUpdate(() => {
-                console.log("[DataBrushInstrument] Parent layer updated. Re-evaluating selection...");
+                // console.log(
+                //   "[DataBrushInstrument] Parent layer updated. Re-evaluating selection..."
+                // );
                 const graphic = selectionLayer.getGraphic();
                 if (graphic)
                     graphic.innerHTML = "";
@@ -875,7 +883,9 @@ Instrument.register("DataBrushXInstrument", {
         // Sync selection layer with parent layer updates
         if (layer.onUpdate) {
             layer.onUpdate(() => {
-                console.log("[DataBrushXInstrument] Parent layer updated. Re-evaluating selection...");
+                // console.log(
+                //   "[DataBrushXInstrument] Parent layer updated. Re-evaluating selection..."
+                // );
                 const graphic = selectionLayer.getGraphic();
                 if (graphic)
                     graphic.innerHTML = "";

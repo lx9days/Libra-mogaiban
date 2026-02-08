@@ -9457,6 +9457,164 @@ var init_instrument = __esm({
           e.stopPropagation();
           e.stopImmediatePropagation();
         }
+        if (event === "mousemove" && e instanceof MouseEvent) {
+          const activeInsts = new Map();
+          const candidateInsts = new Map();
+          for (const inst of instanceInstruments) {
+            let isActive = false;
+            inst._interactors.forEach((i) => {
+              const inter = i instanceof Interactor2 ? i : i.interactor;
+              if (inter._state !== "start")
+                isActive = true;
+            });
+            if (!isActive) {
+              inst._layerInteractors.forEach((interactors) => {
+                if (interactors.some((inter) => inter._state !== "start")) {
+                  isActive = true;
+                }
+              });
+            }
+            if (isActive) {
+              let name = inst._name || inst._baseName;
+              const desc = inst.getSharedVar("description");
+              let html = `<span>${name}</span>`;
+              if (desc) {
+                html += ` <span style="color: #ffab91;">(${desc})</span>`;
+              }
+              activeInsts.set(inst, html);
+            }
+            inst._layerInteractors.forEach((interactors, layr) => {
+              const hasStartInteractor = interactors.some((inter) => inter._state === "start");
+              if (hasStartInteractor) {
+                let layerOption = null;
+                const layerEntry = inst._layers.find((l) => l instanceof Layer2 ? l === layr : l.layer === layr);
+                if (layerEntry && !(layerEntry instanceof Layer2)) {
+                  layerOption = layerEntry.options;
+                }
+                let isHit = false;
+                const layerName = layr._name?.toLowerCase().replaceAll("-", "").replaceAll("_", "");
+                const isBg = layerName === "backgroundlayer" || layerName === "bglayer";
+                const pointerEvents = layerOption?.pointerEvents;
+                if (isBg || pointerEvents === "all") {
+                  isHit = true;
+                } else if (pointerEvents === "visiblePainted") {
+                  try {
+                    const maybeD3Layer = layr;
+                    let inBounds = true;
+                    if (maybeD3Layer._offset && maybeD3Layer._width && maybeD3Layer._height) {
+                      if (e.offsetX < maybeD3Layer._offset.x || e.offsetX > maybeD3Layer._offset.x + maybeD3Layer._width || e.offsetY < maybeD3Layer._offset.y || e.offsetY > maybeD3Layer._offset.y + maybeD3Layer._height) {
+                        inBounds = false;
+                      }
+                    }
+                    if (inBounds) {
+                      const query = layr.picking({
+                        baseOn: QueryType.Shape,
+                        type: ShapeQueryType.Point,
+                        x: e.clientX,
+                        y: e.clientY
+                      });
+                      isHit = query.length > 0;
+                    }
+                  } catch (err) {
+                  }
+                } else {
+                  const maybeD3Layer = layr;
+                  if (maybeD3Layer._offset && maybeD3Layer._width && maybeD3Layer._height) {
+                    if (e.offsetX >= maybeD3Layer._offset.x && e.offsetX <= maybeD3Layer._offset.x + maybeD3Layer._width && e.offsetY >= maybeD3Layer._offset.y && e.offsetY <= maybeD3Layer._offset.y + maybeD3Layer._height) {
+                      isHit = true;
+                    }
+                  } else {
+                    isHit = true;
+                  }
+                }
+                if (isHit) {
+                  let name = inst._name || inst._baseName;
+                  const mod = inst.getSharedVar("modifierKey");
+                  const desc = inst.getSharedVar("description");
+                  let html = `<span>${name}</span>`;
+                  if (mod)
+                    html += ` <span style="color: #ce93d8;">[${mod}]</span>`;
+                  if (desc)
+                    html += ` <span style="color: #ffab91;">(${desc})</span>`;
+                  candidateInsts.set(inst, html);
+                }
+              }
+            });
+          }
+          let hud = document.getElementById("libra-feedforward-hud");
+          if (!hud) {
+            hud = document.createElement("div");
+            hud.id = "libra-feedforward-hud";
+            Object.assign(hud.style, {
+              position: "absolute",
+              backgroundColor: "rgba(33, 33, 33, 0.9)",
+              color: "#e0e0e0",
+              padding: "12px 16px",
+              borderRadius: "6px",
+              fontFamily: "'Segoe UI', Consolas, monospace",
+              fontSize: "13px",
+              lineHeight: "1.5",
+              zIndex: "99999",
+              pointerEvents: "none",
+              whiteSpace: "pre-wrap",
+              maxWidth: "320px",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+              border: "1px solid rgba(255,255,255,0.1)",
+              transition: "opacity 0.2s"
+            });
+            document.body.appendChild(hud);
+          }
+          const sortInstruments = (map2) => {
+            return Array.from(map2.entries()).sort((a, b) => {
+              const pA = a[0]._priority || 0;
+              const pB = b[0]._priority || 0;
+              if (pA !== pB)
+                return pB - pA;
+              const nameA = a[0]._name || a[0]._baseName || "";
+              const nameB = b[0]._name || b[0]._baseName || "";
+              return nameA.localeCompare(nameB);
+            }).map((entry) => `<div style="margin-left: 8px;">${entry[1]}</div>`).join("");
+          };
+          const activeStr = sortInstruments(activeInsts) || "<div style='margin-left: 8px;'>None</div>";
+          const candidateStr = sortInstruments(candidateInsts) || "<div style='margin-left: 8px;'>None</div>";
+          hud.innerHTML = `
+         <div style="margin-bottom: 4px; color: #81c784;"><strong>Active:</strong></div>
+         ${activeStr}
+         <div style="margin-top: 8px; margin-bottom: 4px; color: #64b5f6;"><strong>Candidates:</strong></div>
+         ${candidateStr}
+         <div style="margin-top: 8px; color: #9e9e9e; font-size: 11px;">Pos: (${e.clientX}, ${e.clientY})</div>
+       `;
+          try {
+            const container = layer.getContainerGraphic();
+            if (container && container.parentNode) {
+              if (hud.parentNode !== container.parentNode) {
+                container.parentNode.appendChild(hud);
+                const parentStyle = window.getComputedStyle(container.parentNode);
+                if (parentStyle.position === "static") {
+                  container.parentNode.style.position = "relative";
+                }
+              }
+              hud.style.top = "10px";
+              hud.style.right = "10px";
+              hud.style.left = "auto";
+              hud.style.bottom = "auto";
+            } else {
+              if (hud.parentNode !== document.body) {
+                document.body.appendChild(hud);
+              }
+              hud.style.position = "fixed";
+              hud.style.top = "20px";
+              hud.style.right = "20px";
+            }
+          } catch (err) {
+            if (hud.parentNode !== document.body) {
+              document.body.appendChild(hud);
+            }
+            hud.style.position = "fixed";
+            hud.style.top = "20px";
+            hud.style.right = "20px";
+          }
+        }
         if (eventHandling) {
           let existingEventIndex = EventQueue.findIndex((e2) => e2.instrument === this && e2.layer === layer && e2.eventType === event);
           if (existingEventIndex >= 0) {
@@ -9924,7 +10082,6 @@ var init_builtin3 = __esm({
         const selectionLayer = layer.getLayerFromQueue("selectionLayer");
         if (layer.onUpdate) {
           layer.onUpdate(() => {
-            console.log("[BrushInstrument] Parent layer updated. Re-evaluating selection...");
             const graphic = selectionLayer.getGraphic();
             if (graphic)
               graphic.innerHTML = "";
@@ -10018,7 +10175,6 @@ var init_builtin3 = __esm({
         const selectionLayer = layer.getLayerFromQueue("selectionLayer");
         if (layer.onUpdate) {
           layer.onUpdate(() => {
-            console.log("[BrushXInstrument] Parent layer updated. Re-evaluating selection...");
             const graphic = selectionLayer.getGraphic();
             if (graphic)
               graphic.innerHTML = "";
@@ -10110,7 +10266,6 @@ var init_builtin3 = __esm({
         const selectionLayer = layer.getLayerFromQueue("selectionLayer");
         if (layer.onUpdate) {
           layer.onUpdate(() => {
-            console.log("[BrushYInstrument] Parent layer updated. Re-evaluating selection...");
             const graphic = selectionLayer.getGraphic();
             if (graphic)
               graphic.innerHTML = "";
@@ -10261,7 +10416,6 @@ var init_builtin3 = __esm({
         const selectionLayer = layer.getLayerFromQueue("selectionLayer");
         if (layer.onUpdate) {
           layer.onUpdate(() => {
-            console.log("[DataBrushInstrument] Parent layer updated. Re-evaluating selection...");
             const graphic = selectionLayer.getGraphic();
             if (graphic)
               graphic.innerHTML = "";
@@ -10386,7 +10540,6 @@ var init_builtin3 = __esm({
         const selectionLayer = layer.getLayerFromQueue("selectionLayer");
         if (layer.onUpdate) {
           layer.onUpdate(() => {
-            console.log("[DataBrushXInstrument] Parent layer updated. Re-evaluating selection...");
             const graphic = selectionLayer.getGraphic();
             if (graphic)
               graphic.innerHTML = "";
@@ -11724,7 +11877,8 @@ var Interaction = class {
         stopPropagation: options.stopPropagation,
         sharedVar: Object.assign({}, {
           layers: options.layers ?? [],
-          layer: options.layers?.length == 1 ? options.layers[0] : void 0
+          layer: options.layers?.length == 1 ? options.layers[0] : void 0,
+          description: options.description
         }, registeredInstruments[options.inherit].sharedVar ?? {}, options.sharedVar ?? {})
       });
       if (options.layers) {
@@ -11737,7 +11891,8 @@ var Interaction = class {
         inherit: registeredInteractions[options.inherit].inherit,
         sharedVar: Object.assign({}, {
           layers: options.layers ?? [],
-          layer: options.layers?.length == 1 ? options.layers[0] : void 0
+          layer: options.layers?.length == 1 ? options.layers[0] : void 0,
+          description: options.description
         }, registeredInteractions[options.inherit].sharedVar ?? {}, options.sharedVar ?? {})
       });
       instrument = Interaction.build(inheritOption);

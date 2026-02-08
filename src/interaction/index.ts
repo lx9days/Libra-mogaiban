@@ -25,6 +25,7 @@ type InteractionFlowOption = {
 type InteractionBuildTemplate = {
   inherit: string;
   name?: string;
+  description?: string;
   priority?: number;
   stopPropagation?: boolean;
   layers?: (Layer<any> | { layer: Layer<any>; options: any })[];
@@ -77,6 +78,7 @@ export class Interaction {
               layers: options.layers ?? [],
               layer:
                 options.layers?.length == 1 ? options.layers[0] : undefined,
+              description: options.description,
             },
             registeredInstruments[options.inherit].sharedVar ?? {},
             options.sharedVar ?? {}
@@ -105,6 +107,7 @@ export class Interaction {
               layers: options.layers ?? [],
               layer:
                 options.layers?.length == 1 ? options.layers[0] : undefined,
+              description: options.description,
             },
             registeredInteractions[options.inherit].sharedVar ?? {},
             options.sharedVar ?? {}

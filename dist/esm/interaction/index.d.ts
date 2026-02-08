@@ -14,6 +14,7 @@ type InteractionFlowOption = {
 type InteractionBuildTemplate = {
     inherit: string;
     name?: string;
+    description?: string;
     priority?: number;
     stopPropagation?: boolean;
     layers?: (Layer<any> | {

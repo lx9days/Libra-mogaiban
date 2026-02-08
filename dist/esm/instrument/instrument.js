@@ -342,6 +342,213 @@ export default class Instrument {
             e.stopPropagation();
             e.stopImmediatePropagation();
         }
+        // Feedforward Mechanism
+        if (event === "mousemove" && e instanceof MouseEvent) {
+            const activeInsts = new Map();
+            const candidateInsts = new Map();
+            // Use global instance list to ensure we check all possibilities 
+            // regardless of which layer triggered the event
+            for (const inst of instanceInstruments) {
+                // Check Active
+                // We need to check ALL interactors, including those cloned for layers (_layerInteractors)
+                // and the original ones (_interactors), to find any that are active (state !== "start").
+                // Usually, active interactors are the cloned ones in _layerInteractors.
+                let isActive = false;
+                // Check original interactors (though usually these are templates)
+                inst._interactors.forEach(i => {
+                    const inter = i instanceof Interactor ? i : i.interactor;
+                    if (inter._state !== "start")
+                        isActive = true;
+                });
+                // Check layer-specific interactors (these are the ones actually running)
+                if (!isActive) {
+                    inst._layerInteractors.forEach((interactors) => {
+                        if (interactors.some(inter => inter._state !== "start")) {
+                            isActive = true;
+                        }
+                    });
+                }
+                if (isActive) {
+                    let name = inst._name || inst._baseName;
+                    const desc = inst.getSharedVar("description");
+                    let html = `<span>${name}</span>`;
+                    if (desc) {
+                        html += ` <span style="color: #ffab91;">(${desc})</span>`;
+                    }
+                    activeInsts.set(inst, html);
+                }
+                // Check Candidate
+                // We need to check if this instrument matches the current event context
+                // Since we are iterating all instruments, we must check if they are attached to a layer 
+                // that is relevant to the current pointer position.
+                inst._layerInteractors.forEach((interactors, layr) => {
+                    // Find the interactor corresponding to this instrument logic
+                    // In _layerInteractors, we have copies. We need to check if any of them are in start state.
+                    const hasStartInteractor = interactors.some(inter => inter._state === "start");
+                    if (hasStartInteractor) {
+                        // We need to find the options for this layer attachment to check pointerEvents
+                        // The structure of _layers is (Layer | {layer, options})[]
+                        let layerOption = null;
+                        const layerEntry = inst._layers.find(l => (l instanceof Layer ? l === layr : l.layer === layr));
+                        if (layerEntry && !(layerEntry instanceof Layer)) {
+                            layerOption = layerEntry.options;
+                        }
+                        let isHit = false;
+                        const layerName = layr._name?.toLowerCase().replaceAll("-", "").replaceAll("_", "");
+                        const isBg = layerName === "backgroundlayer" || layerName === "bglayer";
+                        const pointerEvents = layerOption?.pointerEvents;
+                        if (isBg || pointerEvents === "all") {
+                            isHit = true;
+                        }
+                        else if (pointerEvents === "visiblePainted") {
+                            // Explicitly visiblePainted
+                            try {
+                                // Check bounds first (optimization)
+                                const maybeD3Layer = layr;
+                                let inBounds = true;
+                                if (maybeD3Layer._offset &&
+                                    maybeD3Layer._width &&
+                                    maybeD3Layer._height) {
+                                    if (e.offsetX < maybeD3Layer._offset.x ||
+                                        e.offsetX > maybeD3Layer._offset.x + maybeD3Layer._width ||
+                                        e.offsetY < maybeD3Layer._offset.y ||
+                                        e.offsetY > maybeD3Layer._offset.y + maybeD3Layer._height) {
+                                        inBounds = false;
+                                    }
+                                }
+                                if (inBounds) {
+                                    const query = layr.picking({
+                                        baseOn: helpers.QueryType.Shape,
+                                        type: helpers.ShapeQueryType.Point,
+                                        x: e.clientX,
+                                        y: e.clientY,
+                                    });
+                                    isHit = query.length > 0;
+                                }
+                            }
+                            catch (err) {
+                                // Ignore picking errors
+                            }
+                        }
+                        else {
+                            // Default: viewport (matches _dispatch logic when layerOption is undefined)
+                            // Check bounds only
+                            const maybeD3Layer = layr;
+                            if (maybeD3Layer._offset &&
+                                maybeD3Layer._width &&
+                                maybeD3Layer._height) {
+                                if (e.offsetX >= maybeD3Layer._offset.x &&
+                                    e.offsetX <= maybeD3Layer._offset.x + maybeD3Layer._width &&
+                                    e.offsetY >= maybeD3Layer._offset.y &&
+                                    e.offsetY <= maybeD3Layer._offset.y + maybeD3Layer._height) {
+                                    isHit = true;
+                                }
+                            }
+                            else {
+                                isHit = true;
+                            }
+                        }
+                        if (isHit) {
+                            let name = inst._name || inst._baseName;
+                            const mod = inst.getSharedVar("modifierKey");
+                            const desc = inst.getSharedVar("description");
+                            let html = `<span>${name}</span>`;
+                            if (mod)
+                                html += ` <span style="color: #ce93d8;">[${mod}]</span>`;
+                            if (desc)
+                                html += ` <span style="color: #ffab91;">(${desc})</span>`;
+                            candidateInsts.set(inst, html);
+                        }
+                    }
+                });
+            }
+            // Update Feedforward HUD
+            let hud = document.getElementById("libra-feedforward-hud");
+            // We create it initially in body, but we might move it later
+            if (!hud) {
+                hud = document.createElement("div");
+                hud.id = "libra-feedforward-hud";
+                Object.assign(hud.style, {
+                    position: "absolute",
+                    backgroundColor: "rgba(33, 33, 33, 0.9)",
+                    color: "#e0e0e0",
+                    padding: "12px 16px",
+                    borderRadius: "6px",
+                    fontFamily: "'Segoe UI', Consolas, monospace",
+                    fontSize: "13px",
+                    lineHeight: "1.5",
+                    zIndex: "99999",
+                    pointerEvents: "none",
+                    whiteSpace: "pre-wrap",
+                    maxWidth: "320px",
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    transition: "opacity 0.2s"
+                });
+                document.body.appendChild(hud);
+            }
+            const sortInstruments = (map) => {
+                return Array.from(map.entries())
+                    .sort((a, b) => {
+                    const pA = a[0]._priority || 0;
+                    const pB = b[0]._priority || 0;
+                    if (pA !== pB)
+                        return pB - pA; // Descending priority
+                    // Tie-breaker: Alphabetical by name
+                    const nameA = a[0]._name || a[0]._baseName || "";
+                    const nameB = b[0]._name || b[0]._baseName || "";
+                    return nameA.localeCompare(nameB);
+                })
+                    .map(entry => `<div style="margin-left: 8px;">${entry[1]}</div>`)
+                    .join("");
+            };
+            const activeStr = sortInstruments(activeInsts) || "<div style='margin-left: 8px;'>None</div>";
+            const candidateStr = sortInstruments(candidateInsts) || "<div style='margin-left: 8px;'>None</div>";
+            hud.innerHTML = `
+         <div style="margin-bottom: 4px; color: #81c784;"><strong>Active:</strong></div>
+         ${activeStr}
+         <div style="margin-top: 8px; margin-bottom: 4px; color: #64b5f6;"><strong>Candidates:</strong></div>
+         ${candidateStr}
+         <div style="margin-top: 8px; color: #9e9e9e; font-size: 11px;">Pos: (${e.clientX}, ${e.clientY})</div>
+       `;
+            // Position HUD relative to the layer container (Top-Right, Outside)
+            try {
+                const container = layer.getContainerGraphic();
+                if (container && container.parentNode) {
+                    // Ensure HUD is a sibling of the container
+                    if (hud.parentNode !== container.parentNode) {
+                        container.parentNode.appendChild(hud);
+                        // Make sure parent is positioned so absolute positioning works
+                        const parentStyle = window.getComputedStyle(container.parentNode);
+                        if (parentStyle.position === 'static') {
+                            container.parentNode.style.position = 'relative';
+                        }
+                    }
+                    hud.style.top = "10px";
+                    hud.style.right = "10px";
+                    hud.style.left = "auto";
+                    hud.style.bottom = "auto";
+                }
+                else {
+                    // Fallback if no container parent found (e.g. root svg in body)
+                    if (hud.parentNode !== document.body) {
+                        document.body.appendChild(hud);
+                    }
+                    hud.style.position = "fixed";
+                    hud.style.top = "20px";
+                    hud.style.right = "20px";
+                }
+            }
+            catch (err) {
+                // Fallback
+                if (hud.parentNode !== document.body) {
+                    document.body.appendChild(hud);
+                }
+                hud.style.position = "fixed";
+                hud.style.top = "20px";
+                hud.style.right = "20px";
+            }
+        }
         if (eventHandling) {
             let existingEventIndex = EventQueue.findIndex((e) => e.instrument === this && e.layer === layer && e.eventType === event);
             if (existingEventIndex >= 0) {

@@ -22,6 +22,7 @@ export class Interaction {
                 sharedVar: Object.assign({}, {
                     layers: options.layers ?? [],
                     layer: options.layers?.length == 1 ? options.layers[0] : undefined,
+                    description: options.description,
                 }, registeredInstruments[options.inherit].sharedVar ?? {}, options.sharedVar ?? {}),
             });
             if (options.layers) {
@@ -36,6 +37,7 @@ export class Interaction {
                 sharedVar: Object.assign({}, {
                     layers: options.layers ?? [],
                     layer: options.layers?.length == 1 ? options.layers[0] : undefined,
+                    description: options.description,
                 }, registeredInteractions[options.inherit].sharedVar ?? {}, options.sharedVar ?? {}),
             });
             instrument = Interaction.build(inheritOption);
