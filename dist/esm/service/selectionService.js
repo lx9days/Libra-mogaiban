@@ -222,9 +222,56 @@ export default class SelectionService extends Service {
             const height = this._sharedVar.height;
             const layerOffsetX = layer._offset?.x ?? 0;
             const layerOffsetY = layer._offset?.y ?? 0;
-            const newExtentX = [x - layerOffsetX, x - layerOffsetX + width].map(this._sharedVar.scaleX.invert);
-            const newExtentY = [y - layerOffsetY, y - layerOffsetY + height].map(this._sharedVar.scaleY.invert);
-            this.filter([newExtentX, newExtentY], { passive: true });
+            const makeExtentFromRect = (offsetx, offsety, w, h) => {
+                const ex = [offsetx, offsetx + w]
+                    .map((v) => Number(this._sharedVar.scaleX.invert(v)))
+                    .sort((a, b) => a - b);
+                const ey = [offsety, offsety + h]
+                    .map((v) => Number(this._sharedVar.scaleY.invert(v)))
+                    .sort((a, b) => a - b);
+                return [ex, ey];
+            };
+            const selectionHistory = this._sharedVar.selectionHistory;
+            if (Array.isArray(selectionHistory) && selectionHistory.length > 0) {
+                let unionExtentX = null;
+                let unionExtentY = null;
+                selectionHistory.forEach((histItem) => {
+                    const hx = histItem?.offsetx;
+                    const hy = histItem?.offsety;
+                    const hw = histItem?.width;
+                    const hh = histItem?.height;
+                    if (!Number.isFinite(hx) ||
+                        !Number.isFinite(hy) ||
+                        !Number.isFinite(hw) ||
+                        !Number.isFinite(hh) ||
+                        hw <= 0 ||
+                        hh <= 0) {
+                        return;
+                    }
+                    const [ex, ey] = makeExtentFromRect(hx, hy, hw, hh);
+                    if (!unionExtentX)
+                        unionExtentX = ex;
+                    else
+                        unionExtentX = [
+                            Math.min(unionExtentX[0], ex[0]),
+                            Math.max(unionExtentX[1], ex[1]),
+                        ];
+                    if (!unionExtentY)
+                        unionExtentY = ey;
+                    else
+                        unionExtentY = [
+                            Math.min(unionExtentY[0], ey[0]),
+                            Math.max(unionExtentY[1], ey[1]),
+                        ];
+                });
+                if (unionExtentX && unionExtentY) {
+                    this.filter([unionExtentX, unionExtentY], { passive: true });
+                }
+            }
+            else {
+                const [currentExtentX, currentExtentY] = makeExtentFromRect(x - layerOffsetX, y - layerOffsetY, width, height);
+                this.filter([currentExtentX, currentExtentY], { passive: true });
+            }
         }
         else if (this._sharedVar.scaleX && this._sharedVar.scaleX.invert) {
             const x = this._sharedVar.offsetx;
@@ -345,6 +392,10 @@ export default class SelectionService extends Service {
             !(extent[0] instanceof Array)) {
             this._selectionMapping.set(this._currentDimension[0][0], this._currentDimension[0][1](extent)
                 .sort((a, b) => typeof a === "number" ? a - b : a < b ? -1 : a == b ? 0 : 1));
+            if (this._sharedVar.linkSelection || this._sharedVar.linkLayers) {
+                const sourceId = String(this._sharedVar.linkSelectionSource ?? this._baseName);
+                helpers.setLinkSelectionPredicate(sourceId, this.extents);
+            }
             if (!options?.passive) {
                 this._sharedVar.attrName = [...this._selectionMapping.keys()];
                 this._sharedVar.extent = [...this._selectionMapping.values()];
@@ -359,9 +410,38 @@ export default class SelectionService extends Service {
         }
         else if (this._currentDimension.length === extent.length &&
             extent.every((ex) => ex instanceof Array)) {
+            const computedMapping = new Map();
             this._currentDimension.forEach((dim, i) => {
-                this._selectionMapping.set(dim[0], dim[1](extent[i]).sort((a, b) => typeof a === "number" ? a - b : a < b ? -1 : a == b ? 0 : 1));
+                const key = dim[0];
+                const nextExtent = dim[1](extent[i]).sort((a, b) => typeof a === "number" ? a - b : a < b ? -1 : a == b ? 0 : 1);
+                if (computedMapping.has(key)) {
+                    const prevExtent = computedMapping.get(key);
+                    if (prevExtent instanceof Array &&
+                        nextExtent instanceof Array &&
+                        prevExtent.length === 2 &&
+                        nextExtent.length === 2 &&
+                        typeof prevExtent[0] === "number" &&
+                        typeof prevExtent[1] === "number" &&
+                        typeof nextExtent[0] === "number" &&
+                        typeof nextExtent[1] === "number") {
+                        computedMapping.set(key, [
+                            Math.max(prevExtent[0], nextExtent[0]),
+                            Math.min(prevExtent[1], nextExtent[1]),
+                        ]);
+                    }
+                    else {
+                        computedMapping.set(key, nextExtent);
+                    }
+                }
+                else {
+                    computedMapping.set(key, nextExtent);
+                }
             });
+            computedMapping.forEach((v, k) => this._selectionMapping.set(k, v));
+            if (this._sharedVar.linkSelection || this._sharedVar.linkLayers) {
+                const sourceId = String(this._sharedVar.linkSelectionSource ?? this._baseName);
+                helpers.setLinkSelectionPredicate(sourceId, this.extents);
+            }
             if (!options?.passive) {
                 this._sharedVar.attrName = [...this._selectionMapping.keys()];
                 this._sharedVar.extent = [...this._selectionMapping.values()];

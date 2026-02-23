@@ -178,7 +178,10 @@ Interactor.register("MouseWheelInteractor", {
         {
             action: "wheel",
             events: ["wheel", "mousewheel"],
-            transition: [["running", "running"]],
+            transition: [
+                ["start", "running"],
+                ["running", "running"],
+            ],
         },
         {
             action: "leave",

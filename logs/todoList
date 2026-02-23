@@ -1,0 +1,3 @@
+1. 协同机制优化：SPLOM.js中，通过brush（按住remnantKey时松开，让选择残留在屏幕上）进行的高亮会被hoverInstrument所清空。
+2. 强化HelperLine Instrument：实现显示交叉点数据的功能，例如在lineChart中显示交叉line和helperLine交叉点的值。可通过sharedVar启用这个功能
+3. 双交互协作:在excentricLabeling中，如果设置modifierKey，在松开modifierKey时，瞬态层会被冻结，此时瞬态层会成为另一个instrument的目标，实现示例，让用户能够通过滚轮调整excentricLabeling中lens的大小。

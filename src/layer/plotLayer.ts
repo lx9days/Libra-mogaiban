@@ -74,9 +74,13 @@ export default class PlotLayer extends Layer<SVGElement> {
         this._graphic as unknown as HTMLElement
       )
     ) {
-      matrixStr =
+      const containerTransform =
         this._container.querySelector("g")?.getAttribute("transform") ??
         "translate(0,0)";
+      const graphicTransform =
+        (this._graphic as unknown as HTMLElement).getAttribute("transform") ??
+        "translate(0,0)";
+      matrixStr = `${containerTransform} ${graphicTransform}`;
     } else {
       let currDom = this._graphic as unknown as HTMLElement;
       while (currDom != this._container) {

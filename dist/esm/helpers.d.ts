@@ -158,6 +158,14 @@ export type BetweenEventStream = (EventStream & {
 export declare function deepClone(obj: any): any;
 export declare const global: {
     stopTransient: boolean;
+    linkSelectionPredicates: Map<string, Record<string, unknown>>;
+    linkSelectionSubscribers: Set<() => void>;
+};
+export declare function setLinkSelectionPredicate(sourceId: string, predicate: Record<string, unknown> | null | undefined): void;
+export declare function subscribeLinkSelectionPredicates(cb: () => void): () => void;
+export declare function getMergedLinkSelectionPredicate(): {
+    extents: Record<string, [number, number]>;
+    empty: boolean;
 };
 export declare function checkModifier(event: MouseEvent | TouchEvent, modifier: string): boolean;
 export {};

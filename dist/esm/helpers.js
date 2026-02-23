@@ -347,7 +347,72 @@ export function deepClone(obj) {
 }
 export const global = {
     stopTransient: false,
+    linkSelectionPredicates: new Map(),
+    linkSelectionSubscribers: new Set(),
 };
+export function setLinkSelectionPredicate(sourceId, predicate) {
+    if (!sourceId)
+        return;
+    const entries = predicate && typeof predicate === "object" ? Object.entries(predicate) : [];
+    const hasAnyValidNumericExtent = entries.some(([, extent]) => {
+        if (!Array.isArray(extent) || extent.length !== 2)
+            return false;
+        const a = extent[0];
+        const b = extent[1];
+        return Number.isFinite(a) && Number.isFinite(b) && a < b;
+    });
+    if (!hasAnyValidNumericExtent) {
+        global.linkSelectionPredicates.delete(sourceId);
+    }
+    else {
+        global.linkSelectionPredicates.set(sourceId, predicate);
+    }
+    global.linkSelectionSubscribers.forEach((cb) => {
+        try {
+            cb();
+        }
+        catch { }
+    });
+}
+export function subscribeLinkSelectionPredicates(cb) {
+    global.linkSelectionSubscribers.add(cb);
+    return () => {
+        global.linkSelectionSubscribers.delete(cb);
+    };
+}
+export function getMergedLinkSelectionPredicate() {
+    const merged = {};
+    let empty = false;
+    global.linkSelectionPredicates.forEach((predicate) => {
+        if (!predicate || typeof predicate !== "object")
+            return;
+        Object.entries(predicate).forEach(([field, extent]) => {
+            if (!Array.isArray(extent) || extent.length !== 2)
+                return;
+            const a = extent[0];
+            const b = extent[1];
+            if (!Number.isFinite(a) || !Number.isFinite(b))
+                return;
+            const nextMin = Math.min(a, b);
+            const nextMax = Math.max(a, b);
+            if (nextMin === nextMax) {
+                empty = true;
+                return;
+            }
+            const prev = merged[field];
+            if (!prev) {
+                merged[field] = [nextMin, nextMax];
+                return;
+            }
+            const interMin = Math.max(prev[0], nextMin);
+            const interMax = Math.min(prev[1], nextMax);
+            merged[field] = [interMin, interMax];
+            if (!(interMin < interMax))
+                empty = true;
+        });
+    });
+    return { extents: merged, empty };
+}
 import("./history").then((HM) => {
     tryRegisterDynamicInstance = HM.tryRegisterDynamicInstance;
 });

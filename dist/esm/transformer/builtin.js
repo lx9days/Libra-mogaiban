@@ -1,5 +1,6 @@
 import GraphicalTransformer from "./transformer";
 import * as d3 from "d3";
+import * as helpers from "../helpers";
 GraphicalTransformer.register("SliderTransformer", {
     constructor: GraphicalTransformer,
     redraw: ({ layer, transformer }) => {
@@ -30,6 +31,138 @@ GraphicalTransformer.register("HighlightSelection", {
         const attrValueEntries = Object.entries(transformer.getSharedVar("highlightAttrValues"));
         attrValueEntries.forEach(([key, value]) => {
             elems.attr(key, value);
+        });
+    },
+});
+GraphicalTransformer.register("ExtentsLinkTransformer", {
+    constructor: GraphicalTransformer,
+    redraw: ({ transformer }) => {
+        const linkLayers = transformer.getSharedVar("linkLayers");
+        if (!Array.isArray(linkLayers) || linkLayers.length === 0)
+            return;
+        const extents = transformer.getSharedVar("extents");
+        const highlightColor = transformer.getSharedVar("linkStrokeColor") ??
+            transformer.getSharedVar("highlightColor") ??
+            "#00ff1aff";
+        const strokeWidth = transformer.getSharedVar("linkStrokeWidth") ?? 1;
+        const isValidExtent = (extent) => Array.isArray(extent) &&
+            extent.length === 2 &&
+            Number.isFinite(extent[0]) &&
+            Number.isFinite(extent[1]) &&
+            extent[0] < extent[1];
+        const validEntries = extents && typeof extents === "object"
+            ? Object.entries(extents).filter(([, extent]) => isValidExtent(extent))
+            : [];
+        linkLayers.forEach((layer) => {
+            if (!layer || typeof layer.getGraphic !== "function")
+                return;
+            if (typeof layer.setLayersOrder === "function") {
+                layer.setLayersOrder({
+                    linkSelectionLayer: 10,
+                    selectionLayer: 20,
+                    transientLayer: 30,
+                });
+            }
+            const linkSelectionLayer = layer.getLayerFromQueue("linkSelectionLayer");
+            const linkSelectionGraphic = linkSelectionLayer.getGraphic();
+            if (!linkSelectionGraphic)
+                return;
+            while (linkSelectionGraphic.firstChild) {
+                linkSelectionGraphic.removeChild(linkSelectionGraphic.lastChild);
+            }
+            if (validEntries.length === 0)
+                return;
+            const circles = d3.select(layer.getGraphic()).selectAll("circle").nodes();
+            const frag = document.createDocumentFragment();
+            circles.forEach((circle) => {
+                const datum = layer.getDatum(circle);
+                if (!datum)
+                    return;
+                for (const [field, extent] of validEntries) {
+                    const value = datum[field];
+                    if (!Number.isFinite(value))
+                        return;
+                    if (value < extent[0] || value > extent[1])
+                        return;
+                }
+                const cloned = circle.cloneNode(true);
+                cloned.setAttribute("fill", "none");
+                cloned.setAttribute("stroke", highlightColor);
+                cloned.setAttribute("stroke-width", String(strokeWidth));
+                frag.appendChild(cloned);
+            });
+            linkSelectionGraphic.appendChild(frag);
+        });
+    },
+});
+GraphicalTransformer.register("LinkSelectionHubTransformer", {
+    constructor: GraphicalTransformer,
+    redraw: ({ layer, transformer }) => {
+        const unsub = transformer.getSharedVar("_linkSelectionHubUnsub");
+        if (!unsub) {
+            transformer.setSharedVar("_linkSelectionHubUnsub", helpers.subscribeLinkSelectionPredicates(() => transformer.redraw()));
+        }
+        const selectionLayer = layer.getLayerFromQueue("selectionLayer");
+        const selectionGraphic = selectionLayer.getGraphic();
+        if (!selectionGraphic)
+            return;
+        selectionGraphic.innerHTML = "";
+        const merged = helpers.getMergedLinkSelectionPredicate();
+        if (merged.empty)
+            return;
+        const validEntries = Object.entries(merged.extents).filter(([, extent]) => {
+            return (Array.isArray(extent) &&
+                extent.length === 2 &&
+                Number.isFinite(extent[0]) &&
+                Number.isFinite(extent[1]) &&
+                extent[0] < extent[1]);
+        });
+        if (validEntries.length === 0)
+            return;
+        const elements = typeof layer.getVisualElements === "function"
+            ? layer.getVisualElements()
+            : d3.select(layer.getGraphic()).selectAll("*").nodes();
+        const matched = [];
+        elements.forEach((el) => {
+            const datum = layer.getDatum?.(el);
+            if (!datum)
+                return;
+            for (const [field, extent] of validEntries) {
+                const value = datum[field];
+                if (!Number.isFinite(value))
+                    return;
+                if (value < extent[0] || value > extent[1])
+                    return;
+            }
+            matched.push(el);
+        });
+        const resultNodes = matched.map((node) => layer.cloneVisualElements?.(node, false));
+        let selectionTransformer = transformer.getSharedVar("_selectionTransformer");
+        if (!selectionTransformer) {
+            selectionTransformer = GraphicalTransformer.initialize("SelectionTransformer", {
+                transient: false,
+                sharedVar: { layer: selectionLayer, result: [] },
+            });
+            transformer.setSharedVar("_selectionTransformer", selectionTransformer);
+        }
+        const highlightAttrValues = transformer.getSharedVar("highlightAttrValues");
+        const linkStrokeColor = transformer.getSharedVar("linkStrokeColor") ??
+            transformer.getSharedVar("highlightColor") ??
+            "#00ff1aff";
+        const linkStrokeWidth = transformer.getSharedVar("linkStrokeWidth") ?? 1;
+        selectionTransformer.setSharedVars({
+            layer: selectionLayer,
+            result: resultNodes,
+            highlightColor: undefined,
+            highlightAttrValues: {
+                ...(highlightAttrValues && typeof highlightAttrValues === "object"
+                    ? highlightAttrValues
+                    : {}),
+                fill: "none",
+                stroke: String(linkStrokeColor),
+                "stroke-width": String(linkStrokeWidth),
+            },
+            tooltip: transformer.getSharedVar("tooltip"),
         });
     },
 });

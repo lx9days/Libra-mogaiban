@@ -749,22 +749,16 @@ if (!layers) return;
         } else if (!layerOption || layerOption.pointerEvents === "viewport") {
           // Default is `viewport` for layers
           pickingResult = [];
-          const maybeD3Layer = layr as any;
-          if (
-            maybeD3Layer._offset &&
-            maybeD3Layer._width &&
-            maybeD3Layer._height
-          ) {
-            if (
-              e.offsetX < maybeD3Layer._offset.x ||
-              e.offsetX > maybeD3Layer._offset.x + maybeD3Layer._width ||
-              e.offsetY < maybeD3Layer._offset.y ||
-              e.offsetY > maybeD3Layer._offset.y + maybeD3Layer._height
-            ) {
-                  continue;
-                }
+          try {
+            const rect = (layr.getGraphic() as any).getBoundingClientRect?.();
+            if (rect) {
+              const cx = (e as MouseEvent).clientX;
+              const cy = (e as MouseEvent).clientY;
+              if (cx < rect.left || cx > rect.right || cy < rect.top || cy > rect.bottom) {
+                continue;
               }
-              // Try picking for viewport mode to pass information
+            }
+          } catch {}
               pickingResult = layr.picking({
                 baseOn: helpers.QueryType.Shape,
                 type: helpers.ShapeQueryType.Point,

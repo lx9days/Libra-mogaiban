@@ -238,6 +238,7 @@ Instrument.register("BrushInstrument", {
         ],
         drag: [
             async (options) => {
+                console.log("brush");
                 let { event, layer, instrument } = options;
                 if (!instrument.getSharedVar("interactionValid"))
                     return;
@@ -358,6 +359,22 @@ Instrument.register("BrushInstrument", {
     preAttach: (instrument, layer) => {
         // create selectionLayer first
         const selectionLayer = layer.getLayerFromQueue("selectionLayer");
+        const linkLayers = instrument.getSharedVar("linkLayers");
+        if (Array.isArray(linkLayers) && linkLayers.length > 0) {
+            const allLayers = [layer, ...linkLayers].filter((l, i, arr) => !!l && arr.indexOf(l) === i);
+            allLayers.forEach((l) => {
+                GraphicalTransformer.initialize("LinkSelectionHubTransformer", {
+                    layer: l,
+                    sharedVar: {
+                        linkStrokeColor: instrument.getSharedVar("linkStrokeColor"),
+                        linkStrokeWidth: instrument.getSharedVar("linkStrokeWidth"),
+                        highlightColor: instrument.getSharedVar("highlightColor"),
+                        highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
+                        tooltip: instrument.getSharedVar("tooltip"),
+                    },
+                });
+            });
+        }
         // Sync selection layer with parent layer updates
         if (layer.onUpdate) {
             layer.onUpdate(() => {
@@ -377,6 +394,12 @@ Instrument.register("BrushInstrument", {
             layer,
             sharedVar: {
                 deepClone: instrument.getSharedVar("deepClone"),
+                ...(Array.isArray(linkLayers) && linkLayers.length > 0
+                    ? {
+                        linkSelection: true,
+                        linkSelectionSource: String(layer._name ?? instrument._name),
+                    }
+                    : {}),
                 ...(instrument.getSharedVar("highlightColor")
                     ? { highlightColor: instrument.getSharedVar("highlightColor") }
                     : {}),
@@ -387,6 +410,33 @@ Instrument.register("BrushInstrument", {
                     : {}),
                 ...(instrument.getSharedVar("brushStyle")
                     ? { brushStyle: instrument.getSharedVar("brushStyle") }
+                    : {}),
+                ...(instrument.getSharedVar("scaleX")
+                    ? { scaleX: instrument.getSharedVar("scaleX") }
+                    : {}),
+                ...(instrument.getSharedVar("scaleY")
+                    ? { scaleY: instrument.getSharedVar("scaleY") }
+                    : {}),
+                ...(instrument.getSharedVar("attrName")
+                    ? { attrName: instrument.getSharedVar("attrName") }
+                    : {}),
+                ...(Array.isArray(linkLayers) && linkLayers.length > 0
+                    ? { linkLayers: linkLayers }
+                    : {}),
+                ...(instrument.getSharedVar("linkDefaultOpacity") !== undefined
+                    ? { linkDefaultOpacity: instrument.getSharedVar("linkDefaultOpacity") }
+                    : {}),
+                ...(instrument.getSharedVar("linkBaseOpacity") !== undefined
+                    ? { linkBaseOpacity: instrument.getSharedVar("linkBaseOpacity") }
+                    : {}),
+                ...(instrument.getSharedVar("linkSelectedOpacity") !== undefined
+                    ? { linkSelectedOpacity: instrument.getSharedVar("linkSelectedOpacity") }
+                    : {}),
+                ...(instrument.getSharedVar("linkStrokeColor") !== undefined
+                    ? { linkStrokeColor: instrument.getSharedVar("linkStrokeColor") }
+                    : {}),
+                ...(instrument.getSharedVar("linkStrokeWidth") !== undefined
+                    ? { linkStrokeWidth: instrument.getSharedVar("linkStrokeWidth") }
                     : {}),
             },
         });
@@ -462,6 +512,22 @@ Instrument.register("BrushXInstrument", {
     preAttach: (instrument, layer) => {
         // create selectionLayer first
         const selectionLayer = layer.getLayerFromQueue("selectionLayer");
+        const linkLayers = instrument.getSharedVar("linkLayers");
+        if (Array.isArray(linkLayers) && linkLayers.length > 0) {
+            const allLayers = [layer, ...linkLayers].filter((l, i, arr) => !!l && arr.indexOf(l) === i);
+            allLayers.forEach((l) => {
+                GraphicalTransformer.initialize("LinkSelectionHubTransformer", {
+                    layer: l,
+                    sharedVar: {
+                        linkStrokeColor: instrument.getSharedVar("linkStrokeColor"),
+                        linkStrokeWidth: instrument.getSharedVar("linkStrokeWidth"),
+                        highlightColor: instrument.getSharedVar("highlightColor"),
+                        highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
+                        tooltip: instrument.getSharedVar("tooltip"),
+                    },
+                });
+            });
+        }
         // Sync selection layer with parent layer updates
         if (layer.onUpdate) {
             layer.onUpdate(() => {
@@ -483,6 +549,13 @@ Instrument.register("BrushXInstrument", {
                 deepClone: instrument.getSharedVar("deepClone"),
                 highlightColor: instrument.getSharedVar("highlightColor"),
                 highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
+                ...(Array.isArray(linkLayers) && linkLayers.length > 0
+                    ? {
+                        linkSelection: true,
+                        linkSelectionSource: String(layer._name ?? instrument._name),
+                        linkLayers: linkLayers,
+                    }
+                    : {}),
                 ...(instrument.getSharedVar("brushStyle")
                     ? { brushStyle: instrument.getSharedVar("brushStyle") }
                     : {}),
@@ -560,6 +633,22 @@ Instrument.register("BrushYInstrument", {
     preAttach: (instrument, layer) => {
         // create selectionLayer first
         const selectionLayer = layer.getLayerFromQueue("selectionLayer");
+        const linkLayers = instrument.getSharedVar("linkLayers");
+        if (Array.isArray(linkLayers) && linkLayers.length > 0) {
+            const allLayers = [layer, ...linkLayers].filter((l, i, arr) => !!l && arr.indexOf(l) === i);
+            allLayers.forEach((l) => {
+                GraphicalTransformer.initialize("LinkSelectionHubTransformer", {
+                    layer: l,
+                    sharedVar: {
+                        linkStrokeColor: instrument.getSharedVar("linkStrokeColor"),
+                        linkStrokeWidth: instrument.getSharedVar("linkStrokeWidth"),
+                        highlightColor: instrument.getSharedVar("highlightColor"),
+                        highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
+                        tooltip: instrument.getSharedVar("tooltip"),
+                    },
+                });
+            });
+        }
         // Sync selection layer with parent layer updates
         if (layer.onUpdate) {
             layer.onUpdate(() => {
@@ -581,6 +670,13 @@ Instrument.register("BrushYInstrument", {
                 deepClone: instrument.getSharedVar("deepClone"),
                 highlightColor: instrument.getSharedVar("highlightColor"),
                 highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
+                ...(Array.isArray(linkLayers) && linkLayers.length > 0
+                    ? {
+                        linkSelection: true,
+                        linkSelectionSource: String(layer._name ?? instrument._name),
+                        linkLayers: linkLayers,
+                    }
+                    : {}),
                 ...(instrument.getSharedVar("brushStyle")
                     ? { brushStyle: instrument.getSharedVar("brushStyle") }
                     : {}),
@@ -1120,6 +1216,7 @@ Instrument.register("PanInstrument", {
         ],
         drag: [
             async ({ layer, event, instrument, transformer }) => {
+                console.log("drag");
                 if (!instrument.getSharedVar("interactionValid"))
                     return;
                 if (event.changedTouches)
@@ -1297,9 +1394,9 @@ Instrument.register("GeometricZoomInstrument", {
     on: {
         wheel: [
             ({ layer, instrument, event }) => {
-                const modifierKey = instrument.getSharedVar("modifierKey");
-                if (!checkModifier(event, modifierKey))
-                    return;
+                // const modifierKey = instrument.getSharedVar("modifierKey");
+                // if (!checkModifier(event, modifierKey)) return;
+                console.log("weee`2`ee");
                 const layerGraphic = layer.getGraphic();
                 const layerRoot = d3.select(layerGraphic);
                 let transformers = instrument.transformers;

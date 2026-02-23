@@ -4639,6 +4639,7 @@ var init_builtin = __esm({
   "dist/esm/transformer/builtin.js"() {
     init_transformer();
     init_d3();
+    init_helpers();
     GraphicalTransformer.register("SliderTransformer", {
       constructor: GraphicalTransformer,
       redraw: ({ layer, transformer }) => {
@@ -4658,6 +4659,120 @@ var init_builtin = __esm({
         const attrValueEntries = Object.entries(transformer.getSharedVar("highlightAttrValues"));
         attrValueEntries.forEach(([key, value]) => {
           elems.attr(key, value);
+        });
+      }
+    });
+    GraphicalTransformer.register("ExtentsLinkTransformer", {
+      constructor: GraphicalTransformer,
+      redraw: ({ transformer }) => {
+        const linkLayers = transformer.getSharedVar("linkLayers");
+        if (!Array.isArray(linkLayers) || linkLayers.length === 0)
+          return;
+        const extents = transformer.getSharedVar("extents");
+        const highlightColor = transformer.getSharedVar("linkStrokeColor") ?? transformer.getSharedVar("highlightColor") ?? "#00ff1aff";
+        const strokeWidth = transformer.getSharedVar("linkStrokeWidth") ?? 1;
+        const isValidExtent = (extent) => Array.isArray(extent) && extent.length === 2 && Number.isFinite(extent[0]) && Number.isFinite(extent[1]) && extent[0] < extent[1];
+        const validEntries = extents && typeof extents === "object" ? Object.entries(extents).filter(([, extent]) => isValidExtent(extent)) : [];
+        linkLayers.forEach((layer) => {
+          if (!layer || typeof layer.getGraphic !== "function")
+            return;
+          if (typeof layer.setLayersOrder === "function") {
+            layer.setLayersOrder({
+              linkSelectionLayer: 10,
+              selectionLayer: 20,
+              transientLayer: 30
+            });
+          }
+          const linkSelectionLayer = layer.getLayerFromQueue("linkSelectionLayer");
+          const linkSelectionGraphic = linkSelectionLayer.getGraphic();
+          if (!linkSelectionGraphic)
+            return;
+          while (linkSelectionGraphic.firstChild) {
+            linkSelectionGraphic.removeChild(linkSelectionGraphic.lastChild);
+          }
+          if (validEntries.length === 0)
+            return;
+          const circles = select_default2(layer.getGraphic()).selectAll("circle").nodes();
+          const frag = document.createDocumentFragment();
+          circles.forEach((circle) => {
+            const datum2 = layer.getDatum(circle);
+            if (!datum2)
+              return;
+            for (const [field, extent] of validEntries) {
+              const value = datum2[field];
+              if (!Number.isFinite(value))
+                return;
+              if (value < extent[0] || value > extent[1])
+                return;
+            }
+            const cloned = circle.cloneNode(true);
+            cloned.setAttribute("fill", "none");
+            cloned.setAttribute("stroke", highlightColor);
+            cloned.setAttribute("stroke-width", String(strokeWidth));
+            frag.appendChild(cloned);
+          });
+          linkSelectionGraphic.appendChild(frag);
+        });
+      }
+    });
+    GraphicalTransformer.register("LinkSelectionHubTransformer", {
+      constructor: GraphicalTransformer,
+      redraw: ({ layer, transformer }) => {
+        const unsub = transformer.getSharedVar("_linkSelectionHubUnsub");
+        if (!unsub) {
+          transformer.setSharedVar("_linkSelectionHubUnsub", subscribeLinkSelectionPredicates(() => transformer.redraw()));
+        }
+        const selectionLayer = layer.getLayerFromQueue("selectionLayer");
+        const selectionGraphic = selectionLayer.getGraphic();
+        if (!selectionGraphic)
+          return;
+        selectionGraphic.innerHTML = "";
+        const merged = getMergedLinkSelectionPredicate();
+        if (merged.empty)
+          return;
+        const validEntries = Object.entries(merged.extents).filter(([, extent]) => {
+          return Array.isArray(extent) && extent.length === 2 && Number.isFinite(extent[0]) && Number.isFinite(extent[1]) && extent[0] < extent[1];
+        });
+        if (validEntries.length === 0)
+          return;
+        const elements = typeof layer.getVisualElements === "function" ? layer.getVisualElements() : select_default2(layer.getGraphic()).selectAll("*").nodes();
+        const matched = [];
+        elements.forEach((el) => {
+          const datum2 = layer.getDatum?.(el);
+          if (!datum2)
+            return;
+          for (const [field, extent] of validEntries) {
+            const value = datum2[field];
+            if (!Number.isFinite(value))
+              return;
+            if (value < extent[0] || value > extent[1])
+              return;
+          }
+          matched.push(el);
+        });
+        const resultNodes = matched.map((node) => layer.cloneVisualElements?.(node, false));
+        let selectionTransformer = transformer.getSharedVar("_selectionTransformer");
+        if (!selectionTransformer) {
+          selectionTransformer = GraphicalTransformer.initialize("SelectionTransformer", {
+            transient: false,
+            sharedVar: { layer: selectionLayer, result: [] }
+          });
+          transformer.setSharedVar("_selectionTransformer", selectionTransformer);
+        }
+        const highlightAttrValues = transformer.getSharedVar("highlightAttrValues");
+        const linkStrokeColor = transformer.getSharedVar("linkStrokeColor") ?? transformer.getSharedVar("highlightColor") ?? "#00ff1aff";
+        const linkStrokeWidth = transformer.getSharedVar("linkStrokeWidth") ?? 1;
+        selectionTransformer.setSharedVars({
+          layer: selectionLayer,
+          result: resultNodes,
+          highlightColor: void 0,
+          highlightAttrValues: {
+            ...highlightAttrValues && typeof highlightAttrValues === "object" ? highlightAttrValues : {},
+            fill: "none",
+            stroke: String(linkStrokeColor),
+            "stroke-width": String(linkStrokeWidth)
+          },
+          tooltip: transformer.getSharedVar("tooltip")
         });
       }
     });
@@ -5386,9 +5501,46 @@ var init_selectionService = __esm({
           const height = this._sharedVar.height;
           const layerOffsetX = layer._offset?.x ?? 0;
           const layerOffsetY = layer._offset?.y ?? 0;
-          const newExtentX = [x - layerOffsetX, x - layerOffsetX + width].map(this._sharedVar.scaleX.invert);
-          const newExtentY = [y - layerOffsetY, y - layerOffsetY + height].map(this._sharedVar.scaleY.invert);
-          this.filter([newExtentX, newExtentY], { passive: true });
+          const makeExtentFromRect = (offsetx, offsety, w, h) => {
+            const ex = [offsetx, offsetx + w].map((v) => Number(this._sharedVar.scaleX.invert(v))).sort((a, b) => a - b);
+            const ey = [offsety, offsety + h].map((v) => Number(this._sharedVar.scaleY.invert(v))).sort((a, b) => a - b);
+            return [ex, ey];
+          };
+          const selectionHistory = this._sharedVar.selectionHistory;
+          if (Array.isArray(selectionHistory) && selectionHistory.length > 0) {
+            let unionExtentX = null;
+            let unionExtentY = null;
+            selectionHistory.forEach((histItem) => {
+              const hx = histItem?.offsetx;
+              const hy = histItem?.offsety;
+              const hw = histItem?.width;
+              const hh = histItem?.height;
+              if (!Number.isFinite(hx) || !Number.isFinite(hy) || !Number.isFinite(hw) || !Number.isFinite(hh) || hw <= 0 || hh <= 0) {
+                return;
+              }
+              const [ex, ey] = makeExtentFromRect(hx, hy, hw, hh);
+              if (!unionExtentX)
+                unionExtentX = ex;
+              else
+                unionExtentX = [
+                  Math.min(unionExtentX[0], ex[0]),
+                  Math.max(unionExtentX[1], ex[1])
+                ];
+              if (!unionExtentY)
+                unionExtentY = ey;
+              else
+                unionExtentY = [
+                  Math.min(unionExtentY[0], ey[0]),
+                  Math.max(unionExtentY[1], ey[1])
+                ];
+            });
+            if (unionExtentX && unionExtentY) {
+              this.filter([unionExtentX, unionExtentY], { passive: true });
+            }
+          } else {
+            const [currentExtentX, currentExtentY] = makeExtentFromRect(x - layerOffsetX, y - layerOffsetY, width, height);
+            this.filter([currentExtentX, currentExtentY], { passive: true });
+          }
         } else if (this._sharedVar.scaleX && this._sharedVar.scaleX.invert) {
           const x = this._sharedVar.offsetx;
           const width = this._sharedVar.width;
@@ -5485,6 +5637,10 @@ var init_selectionService = __esm({
           }
         } else if (this._currentDimension.length === 1 && extent instanceof Array && extent.length > 0 && !(extent[0] instanceof Array)) {
           this._selectionMapping.set(this._currentDimension[0][0], this._currentDimension[0][1](extent).sort((a, b) => typeof a === "number" ? a - b : a < b ? -1 : a == b ? 0 : 1));
+          if (this._sharedVar.linkSelection || this._sharedVar.linkLayers) {
+            const sourceId = String(this._sharedVar.linkSelectionSource ?? this._baseName);
+            setLinkSelectionPredicate(sourceId, this.extents);
+          }
           if (!options?.passive) {
             this._sharedVar.attrName = [...this._selectionMapping.keys()];
             this._sharedVar.extent = [...this._selectionMapping.values()];
@@ -5497,9 +5653,29 @@ var init_selectionService = __esm({
             transformer.setSharedVar("extents", this.extents);
           });
         } else if (this._currentDimension.length === extent.length && extent.every((ex) => ex instanceof Array)) {
+          const computedMapping = new Map();
           this._currentDimension.forEach((dim, i) => {
-            this._selectionMapping.set(dim[0], dim[1](extent[i]).sort((a, b) => typeof a === "number" ? a - b : a < b ? -1 : a == b ? 0 : 1));
+            const key = dim[0];
+            const nextExtent = dim[1](extent[i]).sort((a, b) => typeof a === "number" ? a - b : a < b ? -1 : a == b ? 0 : 1);
+            if (computedMapping.has(key)) {
+              const prevExtent = computedMapping.get(key);
+              if (prevExtent instanceof Array && nextExtent instanceof Array && prevExtent.length === 2 && nextExtent.length === 2 && typeof prevExtent[0] === "number" && typeof prevExtent[1] === "number" && typeof nextExtent[0] === "number" && typeof nextExtent[1] === "number") {
+                computedMapping.set(key, [
+                  Math.max(prevExtent[0], nextExtent[0]),
+                  Math.min(prevExtent[1], nextExtent[1])
+                ]);
+              } else {
+                computedMapping.set(key, nextExtent);
+              }
+            } else {
+              computedMapping.set(key, nextExtent);
+            }
           });
+          computedMapping.forEach((v, k) => this._selectionMapping.set(k, v));
+          if (this._sharedVar.linkSelection || this._sharedVar.linkLayers) {
+            const sourceId = String(this._sharedVar.linkSelectionSource ?? this._baseName);
+            setLinkSelectionPredicate(sourceId, this.extents);
+          }
           if (!options?.passive) {
             this._sharedVar.attrName = [...this._selectionMapping.keys()];
             this._sharedVar.extent = [...this._selectionMapping.values()];
@@ -6235,7 +6411,10 @@ var init_builtin2 = __esm({
         {
           action: "wheel",
           events: ["wheel", "mousewheel"],
-          transition: [["running", "running"]]
+          transition: [
+            ["start", "running"],
+            ["running", "running"]
+          ]
         },
         {
           action: "leave",
@@ -8592,7 +8771,9 @@ var init_vegaLayer = __esm({
       get _offset() {
         let matrixStr = "translate(0, 0)";
         if ([...this._container.children].includes(this._graphic)) {
-          matrixStr = this._container.querySelector("g")?.getAttribute("transform") ?? "translate(0,0)";
+          const containerTransform = this._container.querySelector("g")?.getAttribute("transform") ?? "translate(0,0)";
+          const graphicTransform = this._graphic.getAttribute("transform") ?? "translate(0,0)";
+          matrixStr = `${containerTransform} ${graphicTransform}`;
         } else {
           let currDom = this._graphic;
           while (currDom != this._container) {
@@ -8950,7 +9131,9 @@ var init_plotLayer = __esm({
       get _offset() {
         let matrixStr = "translate(0, 0)";
         if ([...this._container.children].includes(this._graphic)) {
-          matrixStr = this._container.querySelector("g")?.getAttribute("transform") ?? "translate(0,0)";
+          const containerTransform = this._container.querySelector("g")?.getAttribute("transform") ?? "translate(0,0)";
+          const graphicTransform = this._graphic.getAttribute("transform") ?? "translate(0,0)";
+          matrixStr = `${containerTransform} ${graphicTransform}`;
         } else {
           let currDom = this._graphic;
           while (currDom != this._container) {
@@ -9642,11 +9825,16 @@ var init_instrument = __esm({
             if (layr._name?.toLowerCase().replaceAll("-", "").replaceAll("_", "") === "backgroundlayer" || layr._name?.toLowerCase().replaceAll("-", "").replaceAll("_", "") === "bglayer" || layerOption && layerOption.pointerEvents === "all") {
             } else if (!layerOption || layerOption.pointerEvents === "viewport") {
               pickingResult = [];
-              const maybeD3Layer = layr;
-              if (maybeD3Layer._offset && maybeD3Layer._width && maybeD3Layer._height) {
-                if (e.offsetX < maybeD3Layer._offset.x || e.offsetX > maybeD3Layer._offset.x + maybeD3Layer._width || e.offsetY < maybeD3Layer._offset.y || e.offsetY > maybeD3Layer._offset.y + maybeD3Layer._height) {
-                  continue;
+              try {
+                const rect = layr.getGraphic().getBoundingClientRect?.();
+                if (rect) {
+                  const cx = e.clientX;
+                  const cy = e.clientY;
+                  if (cx < rect.left || cx > rect.right || cy < rect.top || cy > rect.bottom) {
+                    continue;
+                  }
                 }
+              } catch {
               }
               pickingResult = layr.picking({
                 baseOn: QueryType.Shape,
@@ -9970,6 +10158,7 @@ var init_builtin3 = __esm({
         ],
         drag: [
           async (options) => {
+            console.log("brush");
             let { event, layer, instrument } = options;
             if (!instrument.getSharedVar("interactionValid"))
               return;
@@ -10080,6 +10269,22 @@ var init_builtin3 = __esm({
       },
       preAttach: (instrument, layer) => {
         const selectionLayer = layer.getLayerFromQueue("selectionLayer");
+        const linkLayers = instrument.getSharedVar("linkLayers");
+        if (Array.isArray(linkLayers) && linkLayers.length > 0) {
+          const allLayers = [layer, ...linkLayers].filter((l, i, arr) => !!l && arr.indexOf(l) === i);
+          allLayers.forEach((l) => {
+            transformer_default.initialize("LinkSelectionHubTransformer", {
+              layer: l,
+              sharedVar: {
+                linkStrokeColor: instrument.getSharedVar("linkStrokeColor"),
+                linkStrokeWidth: instrument.getSharedVar("linkStrokeWidth"),
+                highlightColor: instrument.getSharedVar("highlightColor"),
+                highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
+                tooltip: instrument.getSharedVar("tooltip")
+              }
+            });
+          });
+        }
         if (layer.onUpdate) {
           layer.onUpdate(() => {
             const graphic = selectionLayer.getGraphic();
@@ -10095,11 +10300,24 @@ var init_builtin3 = __esm({
           layer,
           sharedVar: {
             deepClone: instrument.getSharedVar("deepClone"),
+            ...Array.isArray(linkLayers) && linkLayers.length > 0 ? {
+              linkSelection: true,
+              linkSelectionSource: String(layer._name ?? instrument._name)
+            } : {},
             ...instrument.getSharedVar("highlightColor") ? { highlightColor: instrument.getSharedVar("highlightColor") } : {},
             ...instrument.getSharedVar("highlightAttrValues") ? {
               highlightAttrValues: instrument.getSharedVar("highlightAttrValues")
             } : {},
-            ...instrument.getSharedVar("brushStyle") ? { brushStyle: instrument.getSharedVar("brushStyle") } : {}
+            ...instrument.getSharedVar("brushStyle") ? { brushStyle: instrument.getSharedVar("brushStyle") } : {},
+            ...instrument.getSharedVar("scaleX") ? { scaleX: instrument.getSharedVar("scaleX") } : {},
+            ...instrument.getSharedVar("scaleY") ? { scaleY: instrument.getSharedVar("scaleY") } : {},
+            ...instrument.getSharedVar("attrName") ? { attrName: instrument.getSharedVar("attrName") } : {},
+            ...Array.isArray(linkLayers) && linkLayers.length > 0 ? { linkLayers } : {},
+            ...instrument.getSharedVar("linkDefaultOpacity") !== void 0 ? { linkDefaultOpacity: instrument.getSharedVar("linkDefaultOpacity") } : {},
+            ...instrument.getSharedVar("linkBaseOpacity") !== void 0 ? { linkBaseOpacity: instrument.getSharedVar("linkBaseOpacity") } : {},
+            ...instrument.getSharedVar("linkSelectedOpacity") !== void 0 ? { linkSelectedOpacity: instrument.getSharedVar("linkSelectedOpacity") } : {},
+            ...instrument.getSharedVar("linkStrokeColor") !== void 0 ? { linkStrokeColor: instrument.getSharedVar("linkStrokeColor") } : {},
+            ...instrument.getSharedVar("linkStrokeWidth") !== void 0 ? { linkStrokeWidth: instrument.getSharedVar("linkStrokeWidth") } : {}
           }
         });
       }
@@ -10173,6 +10391,22 @@ var init_builtin3 = __esm({
       },
       preAttach: (instrument, layer) => {
         const selectionLayer = layer.getLayerFromQueue("selectionLayer");
+        const linkLayers = instrument.getSharedVar("linkLayers");
+        if (Array.isArray(linkLayers) && linkLayers.length > 0) {
+          const allLayers = [layer, ...linkLayers].filter((l, i, arr) => !!l && arr.indexOf(l) === i);
+          allLayers.forEach((l) => {
+            transformer_default.initialize("LinkSelectionHubTransformer", {
+              layer: l,
+              sharedVar: {
+                linkStrokeColor: instrument.getSharedVar("linkStrokeColor"),
+                linkStrokeWidth: instrument.getSharedVar("linkStrokeWidth"),
+                highlightColor: instrument.getSharedVar("highlightColor"),
+                highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
+                tooltip: instrument.getSharedVar("tooltip")
+              }
+            });
+          });
+        }
         if (layer.onUpdate) {
           layer.onUpdate(() => {
             const graphic = selectionLayer.getGraphic();
@@ -10190,6 +10424,11 @@ var init_builtin3 = __esm({
             deepClone: instrument.getSharedVar("deepClone"),
             highlightColor: instrument.getSharedVar("highlightColor"),
             highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
+            ...Array.isArray(linkLayers) && linkLayers.length > 0 ? {
+              linkSelection: true,
+              linkSelectionSource: String(layer._name ?? instrument._name),
+              linkLayers
+            } : {},
             ...instrument.getSharedVar("brushStyle") ? { brushStyle: instrument.getSharedVar("brushStyle") } : {}
           }
         });
@@ -10264,6 +10503,22 @@ var init_builtin3 = __esm({
       },
       preAttach: (instrument, layer) => {
         const selectionLayer = layer.getLayerFromQueue("selectionLayer");
+        const linkLayers = instrument.getSharedVar("linkLayers");
+        if (Array.isArray(linkLayers) && linkLayers.length > 0) {
+          const allLayers = [layer, ...linkLayers].filter((l, i, arr) => !!l && arr.indexOf(l) === i);
+          allLayers.forEach((l) => {
+            transformer_default.initialize("LinkSelectionHubTransformer", {
+              layer: l,
+              sharedVar: {
+                linkStrokeColor: instrument.getSharedVar("linkStrokeColor"),
+                linkStrokeWidth: instrument.getSharedVar("linkStrokeWidth"),
+                highlightColor: instrument.getSharedVar("highlightColor"),
+                highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
+                tooltip: instrument.getSharedVar("tooltip")
+              }
+            });
+          });
+        }
         if (layer.onUpdate) {
           layer.onUpdate(() => {
             const graphic = selectionLayer.getGraphic();
@@ -10281,6 +10536,11 @@ var init_builtin3 = __esm({
             deepClone: instrument.getSharedVar("deepClone"),
             highlightColor: instrument.getSharedVar("highlightColor"),
             highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
+            ...Array.isArray(linkLayers) && linkLayers.length > 0 ? {
+              linkSelection: true,
+              linkSelectionSource: String(layer._name ?? instrument._name),
+              linkLayers
+            } : {},
             ...instrument.getSharedVar("brushStyle") ? { brushStyle: instrument.getSharedVar("brushStyle") } : {}
           }
         });
@@ -10758,6 +11018,7 @@ var init_builtin3 = __esm({
         ],
         drag: [
           async ({ layer, event, instrument, transformer }) => {
+            console.log("drag");
             if (!instrument.getSharedVar("interactionValid"))
               return;
             if (event.changedTouches)
@@ -10873,9 +11134,7 @@ var init_builtin3 = __esm({
       on: {
         wheel: [
           ({ layer, instrument, event }) => {
-            const modifierKey = instrument.getSharedVar("modifierKey");
-            if (!checkModifier(event, modifierKey))
-              return;
+            console.log("weee`2`ee");
             const layerGraphic = layer.getGraphic();
             const layerRoot = select_default2(layerGraphic);
             let transformers = instrument.transformers;
@@ -11670,6 +11929,68 @@ function deepClone(obj) {
   const propertyObject = Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, deepClone(v)]));
   return Object.assign(Object.create(Object.getPrototypeOf(obj)), propertyObject);
 }
+function setLinkSelectionPredicate(sourceId, predicate) {
+  if (!sourceId)
+    return;
+  const entries = predicate && typeof predicate === "object" ? Object.entries(predicate) : [];
+  const hasAnyValidNumericExtent = entries.some(([, extent]) => {
+    if (!Array.isArray(extent) || extent.length !== 2)
+      return false;
+    const a = extent[0];
+    const b = extent[1];
+    return Number.isFinite(a) && Number.isFinite(b) && a < b;
+  });
+  if (!hasAnyValidNumericExtent) {
+    global.linkSelectionPredicates.delete(sourceId);
+  } else {
+    global.linkSelectionPredicates.set(sourceId, predicate);
+  }
+  global.linkSelectionSubscribers.forEach((cb) => {
+    try {
+      cb();
+    } catch {
+    }
+  });
+}
+function subscribeLinkSelectionPredicates(cb) {
+  global.linkSelectionSubscribers.add(cb);
+  return () => {
+    global.linkSelectionSubscribers.delete(cb);
+  };
+}
+function getMergedLinkSelectionPredicate() {
+  const merged = {};
+  let empty2 = false;
+  global.linkSelectionPredicates.forEach((predicate) => {
+    if (!predicate || typeof predicate !== "object")
+      return;
+    Object.entries(predicate).forEach(([field, extent]) => {
+      if (!Array.isArray(extent) || extent.length !== 2)
+        return;
+      const a = extent[0];
+      const b = extent[1];
+      if (!Number.isFinite(a) || !Number.isFinite(b))
+        return;
+      const nextMin = Math.min(a, b);
+      const nextMax = Math.max(a, b);
+      if (nextMin === nextMax) {
+        empty2 = true;
+        return;
+      }
+      const prev = merged[field];
+      if (!prev) {
+        merged[field] = [nextMin, nextMax];
+        return;
+      }
+      const interMin = Math.max(prev[0], nextMin);
+      const interMax = Math.min(prev[1], nextMax);
+      merged[field] = [interMin, interMax];
+      if (!(interMin < interMax))
+        empty2 = true;
+    });
+  });
+  return { extents: merged, empty: empty2 };
+}
 function checkModifier(event, modifier) {
   if (!modifier)
     return true;
@@ -11746,7 +12067,9 @@ var init_helpers = __esm({
     };
     MARKS = DEFAULT_MARKS;
     global = {
-      stopTransient: false
+      stopTransient: false,
+      linkSelectionPredicates: new Map(),
+      linkSelectionSubscribers: new Set()
     };
     Promise.resolve().then(() => (init_history(), history_exports)).then((HM) => {
       tryRegisterDynamicInstance2 = HM.tryRegisterDynamicInstance;

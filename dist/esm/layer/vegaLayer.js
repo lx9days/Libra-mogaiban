@@ -47,9 +47,11 @@ export default class VegaLayer extends Layer {
     get _offset() {
         let matrixStr = "translate(0, 0)";
         if ([...this._container.children].includes(this._graphic)) {
-            matrixStr =
-                this._container.querySelector("g")?.getAttribute("transform") ??
-                    "translate(0,0)";
+            const containerTransform = this._container.querySelector("g")?.getAttribute("transform") ??
+                "translate(0,0)";
+            const graphicTransform = this._graphic.getAttribute("transform") ??
+                "translate(0,0)";
+            matrixStr = `${containerTransform} ${graphicTransform}`;
         }
         else {
             let currDom = this._graphic;
