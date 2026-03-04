@@ -9,7 +9,7 @@ export default class SelectionService extends Service {
     isInstanceOf(name: string): boolean;
     /** Cross filter */
     dimension(dimension: string | string[], formatter?: ((value: any) => any) | ((value: any) => any)[]): this;
-    filter(extent: any[] | any[][], options?: any): this;
+    filter(extent: any[] | any[][] | null, options?: any): this;
     get extents(): {
         [k: string]: any[];
     };

@@ -1,6 +1,102 @@
 import Service from "./service";
 import * as helpers from "../helpers";
 import { GraphicalTransformer } from "../transformer";
+const DIM_MANAGED_ATTR = "data-libra-dim-managed";
+const DIM_ORIG_ATTR_OPACITY = "data-libra-dim-orig-attr-opacity";
+const DIM_ORIG_STYLE_OPACITY = "data-libra-dim-orig-style-opacity";
+function clampOpacity(value, fallback) {
+    const n = typeof value === "number" ? value : Number(value);
+    if (!Number.isFinite(n))
+        return fallback;
+    return Math.max(0, Math.min(1, n));
+}
+function normalizeDimConfig(dim) {
+    if (dim === undefined || dim === null || dim === false)
+        return null;
+    if (dim === true)
+        return { opacity: 0.15 };
+    if (typeof dim === "number" || typeof dim === "string") {
+        return { opacity: clampOpacity(dim, 0.15) };
+    }
+    if (typeof dim === "object") {
+        const opacityRaw = dim.opacity ?? dim.Opacity ?? dim.value ?? dim.Value;
+        const opacity = clampOpacity(opacityRaw, 0.15);
+        const selectorRaw = dim.selector ?? dim.Selector;
+        const selector = typeof selectorRaw === "string" && selectorRaw.trim() ? selectorRaw.trim() : undefined;
+        return { opacity, ...(selector ? { selector } : {}) };
+    }
+    return null;
+}
+function markDimOriginalOpacity(el) {
+    if (el.hasAttribute(DIM_MANAGED_ATTR))
+        return;
+    el.setAttribute(DIM_MANAGED_ATTR, "1");
+    el.setAttribute(DIM_ORIG_ATTR_OPACITY, el.getAttribute("opacity") ?? "");
+    const style = el.style;
+    el.setAttribute(DIM_ORIG_STYLE_OPACITY, style && typeof style.opacity === "string" ? style.opacity : "");
+}
+function restoreDimOpacity(el, cleanup) {
+    const origAttr = el.getAttribute(DIM_ORIG_ATTR_OPACITY);
+    if (origAttr === null)
+        return;
+    if (origAttr === "")
+        el.removeAttribute("opacity");
+    else
+        el.setAttribute("opacity", origAttr);
+    const origStyle = el.getAttribute(DIM_ORIG_STYLE_OPACITY);
+    const style = el.style;
+    if (style) {
+        if (!origStyle)
+            style.removeProperty("opacity");
+        else
+            style.opacity = origStyle;
+    }
+    if (cleanup) {
+        el.removeAttribute(DIM_MANAGED_ATTR);
+        el.removeAttribute(DIM_ORIG_ATTR_OPACITY);
+        el.removeAttribute(DIM_ORIG_STYLE_OPACITY);
+    }
+}
+function restoreAllDimmed(root) {
+    const managed = root.querySelectorAll(`[${DIM_MANAGED_ATTR}="1"]`);
+    managed.forEach((el) => restoreDimOpacity(el, true));
+}
+function buildKeepSet(result, root) {
+    const keep = new Set();
+    if (!Array.isArray(result))
+        return keep;
+    result.forEach((node) => {
+        if (!(node instanceof Element))
+            return;
+        if (node === root)
+            return;
+        let cur = node;
+        while (cur && cur !== root) {
+            keep.add(cur);
+            cur = cur.parentElement;
+        }
+    });
+    return keep;
+}
+function applyDimming(root, selector, dimOpacity, keep) {
+    const targets = root.querySelectorAll(selector && selector.trim() ? selector : "*");
+    targets.forEach((el) => {
+        if (!(el instanceof Element))
+            return;
+        if (el.classList.contains("ig-layer-background"))
+            return;
+        markDimOriginalOpacity(el);
+        if (keep.has(el)) {
+            restoreDimOpacity(el, false);
+            return;
+        }
+        const style = el.style;
+        if (style)
+            style.opacity = String(dimOpacity);
+        else
+            el.setAttribute("opacity", String(dimOpacity));
+    });
+}
 export default class SelectionService extends Service {
     constructor(baseName, options) {
         super(baseName, {
@@ -142,6 +238,31 @@ export default class SelectionService extends Service {
                 // );
             }
         }
+        const shouldDim = (this.isInstanceOf("SurfacePointSelectionService") ||
+            this.isInstanceOf("PointSelectionService") ||
+            this.isInstanceOf("RectSelectionService")) &&
+            Object.prototype.hasOwnProperty.call(this._sharedVar, "dim");
+        if (shouldDim) {
+            const cfg = normalizeDimConfig(this._sharedVar.dim);
+            const root = layer.getGraphic();
+            if (!cfg) {
+                restoreAllDimmed(root);
+            }
+            else {
+                const hasHit = Array.isArray(this._result) &&
+                    this._result.some((n) => n instanceof Element && n !== root);
+                if (!hasHit) {
+                    restoreAllDimmed(root);
+                }
+                else {
+                    const keep = buildKeepSet(this._result, root);
+                    applyDimming(root, cfg.selector, cfg.opacity, keep);
+                }
+            }
+        }
+        else {
+            restoreAllDimmed(layer.getGraphic());
+        }
         const selectionLayer = layer
             .getLayerFromQueue("selectionLayer")
             .getGraphic();
@@ -269,23 +390,38 @@ export default class SelectionService extends Service {
                 }
             }
             else {
-                const [currentExtentX, currentExtentY] = makeExtentFromRect(x - layerOffsetX, y - layerOffsetY, width, height);
-                this.filter([currentExtentX, currentExtentY], { passive: true });
+                if (width <= 0 && height <= 0) {
+                    this.filter(null, { passive: true });
+                }
+                else {
+                    const [currentExtentX, currentExtentY] = makeExtentFromRect(x - layerOffsetX, y - layerOffsetY, width, height);
+                    this.filter([currentExtentX, currentExtentY], { passive: true });
+                }
             }
         }
         else if (this._sharedVar.scaleX && this._sharedVar.scaleX.invert) {
             const x = this._sharedVar.offsetx;
             const width = this._sharedVar.width;
             const layerOffsetX = layer._offset?.x ?? 0;
-            const newExtentX = [x - layerOffsetX, x - layerOffsetX + width].map(this._sharedVar.scaleX.invert);
-            this.filter(newExtentX, { passive: true });
+            if (width <= 0) {
+                this.filter(null, { passive: true });
+            }
+            else {
+                const newExtentX = [x - layerOffsetX, x - layerOffsetX + width].map(this._sharedVar.scaleX.invert);
+                this.filter(newExtentX, { passive: true });
+            }
         }
         else if (this._sharedVar.scaleY && this._sharedVar.scaleY.invert) {
             const y = this._sharedVar.offsety;
             const height = this._sharedVar.height;
             const layerOffsetY = layer._offset?.y ?? 0;
-            const newExtentY = [y - layerOffsetY, y - layerOffsetY + height].map(this._sharedVar.scaleY.invert);
-            this.filter(newExtentY, { passive: true });
+            if (height <= 0) {
+                this.filter(null, { passive: true });
+            }
+            else {
+                const newExtentY = [y - layerOffsetY, y - layerOffsetY + height].map(this._sharedVar.scaleY.invert);
+                this.filter(newExtentY, { passive: true });
+            }
         }
         this._nextTick = 0;
         this.postUpdate();
@@ -376,6 +512,25 @@ export default class SelectionService extends Service {
             return this;
         }
         const layer = options?.layer || this._layerInstances[0];
+        if (extent === null) {
+            this._selectionMapping.clear();
+            if (this._sharedVar.linkSelection || this._sharedVar.linkLayers) {
+                const sourceId = String(this._sharedVar.linkSelectionSource ?? this._baseName);
+                helpers.setLinkSelectionPredicate(sourceId, null);
+            }
+            if (!options?.passive) {
+                this._sharedVar.attrName = [];
+                this._sharedVar.extent = [];
+                this._evaluate(layer);
+            }
+            this._services.forEach((service) => {
+                service.setSharedVar("extents", {});
+            });
+            this._transformers.forEach((transformer) => {
+                transformer.setSharedVar("extents", {});
+            });
+            return this;
+        }
         if (this._currentDimension.length === 0 &&
             extent instanceof Array &&
             extent.length > 0) {

@@ -1,6 +1,6 @@
 import Instrument from "./instrument";
 import GraphicalTransformer from "../transformer";
-import { getTransform, checkModifier } from "../helpers";
+import { getTransform, checkModifier, setLinkSelectionPredicate, } from "../helpers";
 import * as d3 from "d3";
 import Command from "../command/command";
 Instrument.register("HoverInstrument", {
@@ -25,6 +25,70 @@ Instrument.register("HoverInstrument", {
                 }, { layer });
                 const transformers = instrument.transformers;
                 transformers.setSharedVars({ cx: event.clientX, cy: event.clientY });
+                const linkLayers = instrument.getSharedVar("linkLayers");
+                if (Array.isArray(linkLayers) && linkLayers.length > 0) {
+                    const sourceId = String(instrument.getSharedVar("linkSelectionSource") ??
+                        layer._name ??
+                        instrument._name);
+                    const root = layer?.getGraphic?.();
+                    const hit = Array.isArray(pickingResult)
+                        ? pickingResult.find((n) => n && n !== root)
+                        : null;
+                    if (!hit) {
+                        setLinkSelectionPredicate(sourceId, null);
+                        return;
+                    }
+                    const datum = layer.getDatum?.(hit) ?? hit.__data__ ?? null;
+                    if (!datum || typeof datum !== "object") {
+                        setLinkSelectionPredicate(sourceId, null);
+                        return;
+                    }
+                    const linkMatchModeRaw = instrument.getSharedVar("linkMatchMode") ??
+                        instrument.getSharedVar("linkMatch") ??
+                        instrument.getSharedVar("linkMatchStrategy");
+                    const linkMatchMode = typeof linkMatchModeRaw === "string"
+                        ? linkMatchModeRaw.trim().toLowerCase()
+                        : "field";
+                    if (linkMatchMode === "datum" || linkMatchMode === "data") {
+                        setLinkSelectionPredicate(sourceId, { __libra_datum__: datum });
+                        return;
+                    }
+                    const normalizeFields = (raw) => {
+                        if (typeof raw === "string" && raw.trim())
+                            return [raw.trim()];
+                        if (Array.isArray(raw))
+                            return raw
+                                .filter((s) => typeof s === "string" && s.trim())
+                                .map((s) => String(s).trim());
+                        return [];
+                    };
+                    const rawLinkFields = instrument.getSharedVar("linkFields") ??
+                        instrument.getSharedVar("linkField") ??
+                        instrument.getSharedVar("linkBy") ??
+                        instrument.getSharedVar("attrName") ??
+                        instrument.getSharedVar("linkAttrName") ??
+                        instrument.getSharedVar("linkAttr");
+                    let linkFields = normalizeFields(rawLinkFields);
+                    if (linkFields.length === 0) {
+                        const candidates = ["id", "ID", "Id", "key", "Key", "name", "Name"];
+                        const found = candidates.find((k) => Object.prototype.hasOwnProperty.call(datum, k));
+                        if (found)
+                            linkFields = [found];
+                    }
+                    const predicate = {};
+                    linkFields.forEach((field) => {
+                        const v = datum[field];
+                        if (typeof v === "number") {
+                            if (Number.isFinite(v))
+                                predicate[field] = v;
+                            return;
+                        }
+                        if (typeof v === "string" || typeof v === "boolean") {
+                            predicate[field] = v;
+                        }
+                    });
+                    setLinkSelectionPredicate(sourceId, Object.keys(predicate).length ? predicate : null);
+                }
             },
         ],
         click: [Command.initialize("Log", { execute() { } })],
@@ -41,6 +105,24 @@ Instrument.register("HoverInstrument", {
     //   });
     // },
     preAttach: (instrument, layer) => {
+        const linkLayers = instrument.getSharedVar("linkLayers");
+        if (Array.isArray(linkLayers) && linkLayers.length > 0) {
+            const allLayers = linkLayers.filter((l, i, arr) => {
+                return !!l && arr.indexOf(l) === i;
+            });
+            allLayers.forEach((l) => {
+                GraphicalTransformer.initialize("LinkSelectionHubTransformer", {
+                    layer: l,
+                    sharedVar: {
+                        linkStrokeColor: instrument.getSharedVar("linkStrokeColor"),
+                        linkStrokeWidth: instrument.getSharedVar("linkStrokeWidth"),
+                        highlightColor: instrument.getSharedVar("highlightColor"),
+                        highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
+                        tooltip: instrument.getSharedVar("tooltip"),
+                    },
+                });
+            });
+        }
         if (layer.onUpdate) {
             layer.onUpdate((layer) => {
                 const services = instrument.services.find("SelectionService");
@@ -51,6 +133,7 @@ Instrument.register("HoverInstrument", {
                 }
             });
         }
+        const hasDim = Object.prototype.hasOwnProperty.call(instrument._sharedVar, "dim");
         const renderSelection = instrument.getSharedVar("renderSelection");
         instrument.services.add("SurfacePointSelectionService", {
             layer,
@@ -61,6 +144,7 @@ Instrument.register("HoverInstrument", {
                 highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
                 tooltip: instrument.getSharedVar("tooltip"),
                 data: instrument.getSharedVar("data"),
+                ...(hasDim ? { dim: instrument.getSharedVar("dim") } : {}),
             },
         });
     },
@@ -151,12 +235,14 @@ Instrument.register("ClickInstrument", {
         ],
     },
     preAttach: (instrument, layer) => {
+        const hasDim = Object.prototype.hasOwnProperty.call(instrument._sharedVar, "dim");
         instrument.services.add("SurfacePointSelectionService", {
             layer,
             sharedVar: {
                 deepClone: instrument.getSharedVar("deepClone"),
                 highlightColor: instrument.getSharedVar("highlightColor"),
                 highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
+                ...(hasDim ? { dim: instrument.getSharedVar("dim") } : {}),
             },
         });
     },
@@ -360,6 +446,7 @@ Instrument.register("BrushInstrument", {
         // create selectionLayer first
         const selectionLayer = layer.getLayerFromQueue("selectionLayer");
         const linkLayers = instrument.getSharedVar("linkLayers");
+        const hasDim = Object.prototype.hasOwnProperty.call(instrument._sharedVar, "dim");
         if (Array.isArray(linkLayers) && linkLayers.length > 0) {
             const allLayers = [layer, ...linkLayers].filter((l, i, arr) => !!l && arr.indexOf(l) === i);
             allLayers.forEach((l) => {
@@ -438,6 +525,7 @@ Instrument.register("BrushInstrument", {
                 ...(instrument.getSharedVar("linkStrokeWidth") !== undefined
                     ? { linkStrokeWidth: instrument.getSharedVar("linkStrokeWidth") }
                     : {}),
+                ...(hasDim ? { dim: instrument.getSharedVar("dim") } : {}),
             },
         });
     },
@@ -513,6 +601,7 @@ Instrument.register("BrushXInstrument", {
         // create selectionLayer first
         const selectionLayer = layer.getLayerFromQueue("selectionLayer");
         const linkLayers = instrument.getSharedVar("linkLayers");
+        const hasDim = Object.prototype.hasOwnProperty.call(instrument._sharedVar, "dim");
         if (Array.isArray(linkLayers) && linkLayers.length > 0) {
             const allLayers = [layer, ...linkLayers].filter((l, i, arr) => !!l && arr.indexOf(l) === i);
             allLayers.forEach((l) => {
@@ -559,6 +648,7 @@ Instrument.register("BrushXInstrument", {
                 ...(instrument.getSharedVar("brushStyle")
                     ? { brushStyle: instrument.getSharedVar("brushStyle") }
                     : {}),
+                ...(hasDim ? { dim: instrument.getSharedVar("dim") } : {}),
             },
         });
     },
@@ -634,6 +724,7 @@ Instrument.register("BrushYInstrument", {
         // create selectionLayer first
         const selectionLayer = layer.getLayerFromQueue("selectionLayer");
         const linkLayers = instrument.getSharedVar("linkLayers");
+        const hasDim = Object.prototype.hasOwnProperty.call(instrument._sharedVar, "dim");
         if (Array.isArray(linkLayers) && linkLayers.length > 0) {
             const allLayers = [layer, ...linkLayers].filter((l, i, arr) => !!l && arr.indexOf(l) === i);
             allLayers.forEach((l) => {
@@ -680,6 +771,7 @@ Instrument.register("BrushYInstrument", {
                 ...(instrument.getSharedVar("brushStyle")
                     ? { brushStyle: instrument.getSharedVar("brushStyle") }
                     : {}),
+                ...(hasDim ? { dim: instrument.getSharedVar("dim") } : {}),
             },
         });
     },
