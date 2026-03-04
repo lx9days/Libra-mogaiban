@@ -5,6 +5,7 @@ import { Command } from "../command";
 import { Layer } from "../layer";
 import { Service, findService } from "../service";
 import { GraphicalTransformer } from "../transformer";
+import { eventAnalyzer } from "./eventAnalyzer";
 export const registeredInstruments = {};
 export const instanceInstruments = [];
 const EventDispatcher = new Map();
@@ -337,6 +338,7 @@ export default class Instrument {
         });
     }
     async _dispatch(layer, event, e) {
+        eventAnalyzer.analyze(e);
         if (layer._baseName !== "Layer") {
             e.preventDefault();
             e.stopPropagation();
@@ -630,6 +632,19 @@ export default class Instrument {
             }
             const modifierKey = instrument.getSharedVar("modifierKey");
             if (e instanceof MouseEvent && !helpers.checkModifier(e, modifierKey)) {
+                continue;
+            }
+            const gesture = instrument.getSharedVar("gesture");
+            const isStayEvent = e.libraStayEvent;
+            if (gesture === "stay") {
+                const features = e.libraFeatures;
+                // If it's a stay event, we allow it (features.dwellTime should be sufficient, but the flag is the key)
+                if (!isStayEvent && (!features || features.dwellTime < 1000)) {
+                    continue;
+                }
+            }
+            else if (isStayEvent) {
+                // Normal instruments should ignore the synthetic stay event to avoid double triggering
                 continue;
             }
             try {

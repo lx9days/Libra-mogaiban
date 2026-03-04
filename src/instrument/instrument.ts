@@ -5,6 +5,7 @@ import { Layer } from "../layer";
 import { Service, findService } from "../service";
 import { GraphicalTransformer } from "../transformer";
 import SelectionService from "../service/selectionService";
+import { eventAnalyzer } from "./eventAnalyzer";
 
 type InstrumentInitOption = {
   name?: string;
@@ -474,6 +475,7 @@ export default class Instrument {
   }
 
   async _dispatch(layer: Layer<any>, event: string, e: Event) {
+    eventAnalyzer.analyze(e);
     if (layer._baseName !== "Layer") {
       e.preventDefault();
       e.stopPropagation();
@@ -798,6 +800,21 @@ if (!layers) return;
       if (e instanceof MouseEvent && !helpers.checkModifier(e, modifierKey)) {
         continue;
       }
+      
+      const gesture = instrument.getSharedVar("gesture");
+      const isStayEvent = (e as any).libraStayEvent;
+
+      if (gesture === "stay") {
+        const features = (e as any).libraFeatures;
+        // If it's a stay event, we allow it (features.dwellTime should be sufficient, but the flag is the key)
+        if (!isStayEvent && (!features || features.dwellTime < 1000)) {
+          continue;
+        }
+      } else if (isStayEvent) {
+        // Normal instruments should ignore the synthetic stay event to avoid double triggering
+        continue;
+      }
+
       try {
         let flag = await inter.dispatch(e, layr, pickingResult);
         if (flag) {

@@ -9332,6 +9332,135 @@ var init_layer2 = __esm({
   }
 });
 
+// dist/esm/instrument/eventAnalyzer.js
+var EventAnalyzer, eventAnalyzer;
+var init_eventAnalyzer = __esm({
+  "dist/esm/instrument/eventAnalyzer.js"() {
+    EventAnalyzer = class {
+      constructor() {
+        this.trajectory = [];
+        this.dwellStart = null;
+        this.dwellThreshold = 5;
+        this.historyWindow = 200;
+        this.stayTimer = null;
+        this.lastEventSnapshot = null;
+      }
+      analyze(event) {
+        if (event.libraFeatures)
+          return event.libraFeatures;
+        const isStayEvent = event.libraStayEvent;
+        const now2 = Date.now();
+        const features = {
+          dwellTime: 0,
+          mainDirection: "none",
+          displacementX: 0,
+          displacementY: 0,
+          history: []
+        };
+        let clientX, clientY;
+        if (event instanceof MouseEvent) {
+          clientX = event.clientX;
+          clientY = event.clientY;
+        } else if (event.changedTouches && event.changedTouches.length > 0) {
+          clientX = event.changedTouches[0].clientX;
+          clientY = event.changedTouches[0].clientY;
+        } else {
+          return features;
+        }
+        this.trajectory.push({ x: clientX, y: clientY, t: now2 });
+        this.trajectory = this.trajectory.filter((p) => now2 - p.t <= this.historyWindow);
+        features.history = [...this.trajectory];
+        if (this.trajectory.length > 1) {
+          const start2 = this.trajectory[0];
+          const end = this.trajectory[this.trajectory.length - 1];
+          const dx = Math.abs(end.x - start2.x);
+          const dy = Math.abs(end.y - start2.y);
+          features.displacementX = dx;
+          features.displacementY = dy;
+          if (dx > dy && dx > 2)
+            features.mainDirection = "x";
+          else if (dy > dx && dy > 2)
+            features.mainDirection = "y";
+        }
+        if (!this.dwellStart) {
+          this.dwellStart = { x: clientX, y: clientY, t: now2 };
+        } else {
+          const dist = Math.sqrt(Math.pow(clientX - this.dwellStart.x, 2) + Math.pow(clientY - this.dwellStart.y, 2));
+          if (dist > this.dwellThreshold) {
+            this.dwellStart = { x: clientX, y: clientY, t: now2 };
+            features.dwellTime = 0;
+            if (this.stayTimer) {
+              clearTimeout(this.stayTimer);
+              this.stayTimer = null;
+            }
+          } else {
+            features.dwellTime = now2 - this.dwellStart.t;
+          }
+        }
+        event.libraFeatures = features;
+        if (!isStayEvent && event instanceof MouseEvent && event.type === "mousemove") {
+          if (this.stayTimer)
+            clearTimeout(this.stayTimer);
+          const timeElapsed = features.dwellTime;
+          const timeRemaining = Math.max(0, 1e3 - timeElapsed);
+          this.lastEventSnapshot = {
+            type: event.type,
+            target: event.target,
+            bubbles: event.bubbles,
+            cancelable: event.cancelable,
+            view: event.view,
+            detail: event.detail,
+            screenX: event.screenX,
+            screenY: event.screenY,
+            clientX: event.clientX,
+            clientY: event.clientY,
+            ctrlKey: event.ctrlKey,
+            altKey: event.altKey,
+            shiftKey: event.shiftKey,
+            metaKey: event.metaKey,
+            button: event.button,
+            buttons: event.buttons,
+            relatedTarget: event.relatedTarget
+          };
+          this.stayTimer = setTimeout(() => {
+            this.dispatchStayEvent();
+          }, timeRemaining);
+        }
+        return features;
+      }
+      dispatchStayEvent() {
+        if (!this.lastEventSnapshot || !this.lastEventSnapshot.target)
+          return;
+        const snapshot = this.lastEventSnapshot;
+        if (snapshot.target instanceof Node && !snapshot.target.isConnected) {
+          return;
+        }
+        console.log("[Libra Debug] Dispatching synthetic stay event from snapshot", snapshot);
+        const stayEvent = new MouseEvent(snapshot.type, {
+          bubbles: snapshot.bubbles,
+          cancelable: snapshot.cancelable,
+          view: snapshot.view,
+          detail: snapshot.detail,
+          screenX: snapshot.screenX,
+          screenY: snapshot.screenY,
+          clientX: snapshot.clientX,
+          clientY: snapshot.clientY,
+          ctrlKey: snapshot.ctrlKey,
+          altKey: snapshot.altKey,
+          shiftKey: snapshot.shiftKey,
+          metaKey: snapshot.metaKey,
+          button: snapshot.button,
+          buttons: snapshot.buttons,
+          relatedTarget: snapshot.relatedTarget
+        });
+        stayEvent.libraStayEvent = true;
+        snapshot.target.dispatchEvent(stayEvent);
+      }
+    };
+    eventAnalyzer = new EventAnalyzer();
+  }
+});
+
 // dist/esm/instrument/instrument.js
 var _a5, registeredInstruments, instanceInstruments, EventDispatcher, EventQueue, eventHandling, Instrument, register6, unregister4, initialize6, findInstrument;
 var init_instrument = __esm({
@@ -9342,6 +9471,7 @@ var init_instrument = __esm({
     init_layer2();
     init_service2();
     init_transformer2();
+    init_eventAnalyzer();
     registeredInstruments = {};
     instanceInstruments = [];
     EventDispatcher = new Map();
@@ -9635,6 +9765,7 @@ var init_instrument = __esm({
         });
       }
       async _dispatch(layer, event, e) {
+        eventAnalyzer.analyze(e);
         if (layer._baseName !== "Layer") {
           e.preventDefault();
           e.stopPropagation();
@@ -9862,6 +9993,16 @@ var init_instrument = __esm({
           }
           const modifierKey = instrument.getSharedVar("modifierKey");
           if (e instanceof MouseEvent && !checkModifier(e, modifierKey)) {
+            continue;
+          }
+          const gesture = instrument.getSharedVar("gesture");
+          const isStayEvent = e.libraStayEvent;
+          if (gesture === "stay") {
+            const features = e.libraFeatures;
+            if (!isStayEvent && (!features || features.dwellTime < 1e3)) {
+              continue;
+            }
+          } else if (isStayEvent) {
             continue;
           }
           try {

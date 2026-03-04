@@ -9,6 +9,9 @@ Instrument.register("HoverInstrument", {
     on: {
         hover: [
             async ({ event, layer, instrument, pickingResult }) => {
+                // Access pre-calculated features
+                // const features = (event as any).libraFeatures;
+                // if (features && features.dwellTime > 1000) { console.log("Long dwell!"); }
                 // console.log("[HoverInstrument Debug]", pickingResult && pickingResult.length > 0 ? "Hit Element" : "Hit Empty", pickingResult);
                 const modifierKey = instrument.getSharedVar("modifierKey");
                 if (!checkModifier(event, modifierKey))
