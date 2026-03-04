@@ -1,3 +1,40 @@
+核心任务是统一DSL规范：
+必要属性：
+Instrument（目前共10种，如atomic.csv所示，每种instrument具有可参数化配置的默认行为）
+Trigger
+Target Layer
+Feedback Options（用于配置默认行为的参数）
+
+交互组合属性：
+ModifierKey
+Priority，stopPropagation
+
+Feedback Options可以：
+写入固定词条以配置默认反馈行为的参数
+传入外部的重绘函数（但需要输入输出符合格式）来适应更复杂的交互
+对于最复杂的交互，可以传入多个函数进行固定的remove，insert行为，映射到build API
+
+(也就是基础交互拿来就用，上手简单而且组合起来很方便，就好像libra.js的hover/click在build里面随便配配highlight就能用一样)
+(复杂交互你可以按规矩来写重绘函数，比如reorder，你再传点必要的context就行)
+(终极无敌复杂交互，管他那么许多……我也不是没给你留口子，但是你为什么不直接用libra.js呢？)
+这个DSL大概就是这样的感觉了……
+
+任务列表：
+
+讨论
+到底把link selection作为单独的instrument还是前面三种selection的行为？Overview&detail怎么用其他instrument组合出来？
+
+功能：
+底层强化之highlight，Libra.js提供的hover，click，brush Instrument的highlight多一个Dim配置项，能够把没高亮的元素淡化
+
+
+Debug
 1. 协同机制优化：SPLOM.js中，通过brush（按住remnantKey时松开，让选择残留在屏幕上）进行的高亮会被hoverInstrument所清空。
 2. 强化HelperLine Instrument：实现显示交叉点数据的功能，例如在lineChart中显示交叉line和helperLine交叉点的值。可通过sharedVar启用这个功能
+
+
+
+
+
+已实现
 3. 双交互协作:在excentricLabeling中，如果设置modifierKey，在松开modifierKey时，瞬态层会被冻结，此时瞬态层会成为另一个instrument的目标，实现示例，让用户能够通过滚轮调整excentricLabeling中lens的大小。

@@ -4730,8 +4730,27 @@ var init_builtin = __esm({
         const merged = getMergedLinkSelectionPredicate();
         if (merged.empty)
           return;
-        const validEntries = Object.entries(merged.extents).filter(([, extent]) => {
-          return Array.isArray(extent) && extent.length === 2 && Number.isFinite(extent[0]) && Number.isFinite(extent[1]) && extent[0] < extent[1];
+        const DATUM_REF_FIELD = "__libra_datum__";
+        const isPrimitive = (v) => {
+          if (typeof v === "number")
+            return Number.isFinite(v);
+          return typeof v === "string" || typeof v === "boolean";
+        };
+        const isNumericRange = (v) => {
+          if (!Array.isArray(v) || v.length !== 2)
+            return false;
+          const a = v[0];
+          const b = v[1];
+          return Number.isFinite(a) && Number.isFinite(b) && a !== b;
+        };
+        const validEntries = Object.entries(merged.extents).filter(([, predicate]) => {
+          if (isNumericRange(predicate))
+            return true;
+          if (Array.isArray(predicate))
+            return predicate.some(isPrimitive);
+          if (predicate && typeof predicate === "object")
+            return true;
+          return isPrimitive(predicate);
         });
         if (validEntries.length === 0)
           return;
@@ -4741,11 +4760,41 @@ var init_builtin = __esm({
           const datum2 = layer.getDatum?.(el);
           if (!datum2)
             return;
-          for (const [field, extent] of validEntries) {
+          const matches = (value, predicate) => {
+            if (isNumericRange(predicate)) {
+              if (typeof value !== "number" || !Number.isFinite(value))
+                return false;
+              const a = predicate[0];
+              const b = predicate[1];
+              const min = Math.min(a, b);
+              const max = Math.max(a, b);
+              return value >= min && value <= max;
+            }
+            if (Array.isArray(predicate)) {
+              const setVals = predicate.filter(isPrimitive);
+              if (setVals.length === 0)
+                return false;
+              if (!isPrimitive(value))
+                return false;
+              return setVals.some((v) => v === value);
+            }
+            if (predicate && typeof predicate === "object") {
+              return value === predicate;
+            }
+            if (!isPrimitive(predicate))
+              return false;
+            if (!isPrimitive(value))
+              return false;
+            return value === predicate;
+          };
+          for (const [field, predicate] of validEntries) {
+            if (field === DATUM_REF_FIELD) {
+              if (datum2 !== predicate)
+                return;
+              continue;
+            }
             const value = datum2[field];
-            if (!Number.isFinite(value))
-              return;
-            if (value < extent[0] || value > extent[1])
+            if (!matches(value, predicate))
               return;
           }
           matched.push(el);
@@ -5319,12 +5368,108 @@ var init_service = __esm({
 });
 
 // dist/esm/service/selectionService.js
-var SelectionService;
+function clampOpacity(value, fallback) {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n))
+    return fallback;
+  return Math.max(0, Math.min(1, n));
+}
+function normalizeDimConfig(dim) {
+  if (dim === void 0 || dim === null || dim === false)
+    return null;
+  if (dim === true)
+    return { opacity: 0.15 };
+  if (typeof dim === "number" || typeof dim === "string") {
+    return { opacity: clampOpacity(dim, 0.15) };
+  }
+  if (typeof dim === "object") {
+    const opacityRaw = dim.opacity ?? dim.Opacity ?? dim.value ?? dim.Value;
+    const opacity = clampOpacity(opacityRaw, 0.15);
+    const selectorRaw = dim.selector ?? dim.Selector;
+    const selector = typeof selectorRaw === "string" && selectorRaw.trim() ? selectorRaw.trim() : void 0;
+    return { opacity, ...selector ? { selector } : {} };
+  }
+  return null;
+}
+function markDimOriginalOpacity(el) {
+  if (el.hasAttribute(DIM_MANAGED_ATTR))
+    return;
+  el.setAttribute(DIM_MANAGED_ATTR, "1");
+  el.setAttribute(DIM_ORIG_ATTR_OPACITY, el.getAttribute("opacity") ?? "");
+  const style = el.style;
+  el.setAttribute(DIM_ORIG_STYLE_OPACITY, style && typeof style.opacity === "string" ? style.opacity : "");
+}
+function restoreDimOpacity(el, cleanup) {
+  const origAttr = el.getAttribute(DIM_ORIG_ATTR_OPACITY);
+  if (origAttr === null)
+    return;
+  if (origAttr === "")
+    el.removeAttribute("opacity");
+  else
+    el.setAttribute("opacity", origAttr);
+  const origStyle = el.getAttribute(DIM_ORIG_STYLE_OPACITY);
+  const style = el.style;
+  if (style) {
+    if (!origStyle)
+      style.removeProperty("opacity");
+    else
+      style.opacity = origStyle;
+  }
+  if (cleanup) {
+    el.removeAttribute(DIM_MANAGED_ATTR);
+    el.removeAttribute(DIM_ORIG_ATTR_OPACITY);
+    el.removeAttribute(DIM_ORIG_STYLE_OPACITY);
+  }
+}
+function restoreAllDimmed(root2) {
+  const managed = root2.querySelectorAll(`[${DIM_MANAGED_ATTR}="1"]`);
+  managed.forEach((el) => restoreDimOpacity(el, true));
+}
+function buildKeepSet(result, root2) {
+  const keep = new Set();
+  if (!Array.isArray(result))
+    return keep;
+  result.forEach((node) => {
+    if (!(node instanceof Element))
+      return;
+    if (node === root2)
+      return;
+    let cur = node;
+    while (cur && cur !== root2) {
+      keep.add(cur);
+      cur = cur.parentElement;
+    }
+  });
+  return keep;
+}
+function applyDimming(root2, selector, dimOpacity, keep) {
+  const targets = root2.querySelectorAll(selector && selector.trim() ? selector : "*");
+  targets.forEach((el) => {
+    if (!(el instanceof Element))
+      return;
+    if (el.classList.contains("ig-layer-background"))
+      return;
+    markDimOriginalOpacity(el);
+    if (keep.has(el)) {
+      restoreDimOpacity(el, false);
+      return;
+    }
+    const style = el.style;
+    if (style)
+      style.opacity = String(dimOpacity);
+    else
+      el.setAttribute("opacity", String(dimOpacity));
+  });
+}
+var DIM_MANAGED_ATTR, DIM_ORIG_ATTR_OPACITY, DIM_ORIG_STYLE_OPACITY, SelectionService;
 var init_selectionService = __esm({
   "dist/esm/service/selectionService.js"() {
     init_service();
     init_helpers();
     init_transformer2();
+    DIM_MANAGED_ATTR = "data-libra-dim-managed";
+    DIM_ORIG_ATTR_OPACITY = "data-libra-dim-orig-attr-opacity";
+    DIM_ORIG_STYLE_OPACITY = "data-libra-dim-orig-style-opacity";
     SelectionService = class extends Service {
       constructor(baseName4, options) {
         super(baseName4, {
@@ -5436,6 +5581,24 @@ var init_selectionService = __esm({
           if (this.isInstanceOf("SurfacePointSelectionService")) {
           }
         }
+        const shouldDim = (this.isInstanceOf("SurfacePointSelectionService") || this.isInstanceOf("PointSelectionService") || this.isInstanceOf("RectSelectionService")) && Object.prototype.hasOwnProperty.call(this._sharedVar, "dim");
+        if (shouldDim) {
+          const cfg = normalizeDimConfig(this._sharedVar.dim);
+          const root2 = layer.getGraphic();
+          if (!cfg) {
+            restoreAllDimmed(root2);
+          } else {
+            const hasHit = Array.isArray(this._result) && this._result.some((n) => n instanceof Element && n !== root2);
+            if (!hasHit) {
+              restoreAllDimmed(root2);
+            } else {
+              const keep = buildKeepSet(this._result, root2);
+              applyDimming(root2, cfg.selector, cfg.opacity, keep);
+            }
+          }
+        } else {
+          restoreAllDimmed(layer.getGraphic());
+        }
         const selectionLayer = layer.getLayerFromQueue("selectionLayer").getGraphic();
         while (selectionLayer?.firstChild) {
           selectionLayer.removeChild(selectionLayer.lastChild);
@@ -5538,21 +5701,33 @@ var init_selectionService = __esm({
               this.filter([unionExtentX, unionExtentY], { passive: true });
             }
           } else {
-            const [currentExtentX, currentExtentY] = makeExtentFromRect(x - layerOffsetX, y - layerOffsetY, width, height);
-            this.filter([currentExtentX, currentExtentY], { passive: true });
+            if (width <= 0 && height <= 0) {
+              this.filter(null, { passive: true });
+            } else {
+              const [currentExtentX, currentExtentY] = makeExtentFromRect(x - layerOffsetX, y - layerOffsetY, width, height);
+              this.filter([currentExtentX, currentExtentY], { passive: true });
+            }
           }
         } else if (this._sharedVar.scaleX && this._sharedVar.scaleX.invert) {
           const x = this._sharedVar.offsetx;
           const width = this._sharedVar.width;
           const layerOffsetX = layer._offset?.x ?? 0;
-          const newExtentX = [x - layerOffsetX, x - layerOffsetX + width].map(this._sharedVar.scaleX.invert);
-          this.filter(newExtentX, { passive: true });
+          if (width <= 0) {
+            this.filter(null, { passive: true });
+          } else {
+            const newExtentX = [x - layerOffsetX, x - layerOffsetX + width].map(this._sharedVar.scaleX.invert);
+            this.filter(newExtentX, { passive: true });
+          }
         } else if (this._sharedVar.scaleY && this._sharedVar.scaleY.invert) {
           const y = this._sharedVar.offsety;
           const height = this._sharedVar.height;
           const layerOffsetY = layer._offset?.y ?? 0;
-          const newExtentY = [y - layerOffsetY, y - layerOffsetY + height].map(this._sharedVar.scaleY.invert);
-          this.filter(newExtentY, { passive: true });
+          if (height <= 0) {
+            this.filter(null, { passive: true });
+          } else {
+            const newExtentY = [y - layerOffsetY, y - layerOffsetY + height].map(this._sharedVar.scaleY.invert);
+            this.filter(newExtentY, { passive: true });
+          }
         }
         this._nextTick = 0;
         this.postUpdate();
@@ -5628,6 +5803,25 @@ var init_selectionService = __esm({
           return this;
         }
         const layer = options?.layer || this._layerInstances[0];
+        if (extent === null) {
+          this._selectionMapping.clear();
+          if (this._sharedVar.linkSelection || this._sharedVar.linkLayers) {
+            const sourceId = String(this._sharedVar.linkSelectionSource ?? this._baseName);
+            setLinkSelectionPredicate(sourceId, null);
+          }
+          if (!options?.passive) {
+            this._sharedVar.attrName = [];
+            this._sharedVar.extent = [];
+            this._evaluate(layer);
+          }
+          this._services.forEach((service) => {
+            service.setSharedVar("extents", {});
+          });
+          this._transformers.forEach((transformer) => {
+            transformer.setSharedVar("extents", {});
+          });
+          return this;
+        }
         if (this._currentDimension.length === 0 && extent instanceof Array && extent.length > 0) {
           if (this._sharedVar.attrName) {
             this._userOptions.query.attrName = this._sharedVar.attrName;
@@ -10105,12 +10299,79 @@ var init_builtin3 = __esm({
             }, { layer });
             const transformers = instrument.transformers;
             transformers.setSharedVars({ cx: event.clientX, cy: event.clientY });
+            const linkLayers = instrument.getSharedVar("linkLayers");
+            if (Array.isArray(linkLayers) && linkLayers.length > 0) {
+              const sourceId = String(instrument.getSharedVar("linkSelectionSource") ?? layer._name ?? instrument._name);
+              const root2 = layer?.getGraphic?.();
+              const hit = Array.isArray(pickingResult) ? pickingResult.find((n) => n && n !== root2) : null;
+              if (!hit) {
+                setLinkSelectionPredicate(sourceId, null);
+                return;
+              }
+              const datum2 = layer.getDatum?.(hit) ?? hit.__data__ ?? null;
+              if (!datum2 || typeof datum2 !== "object") {
+                setLinkSelectionPredicate(sourceId, null);
+                return;
+              }
+              const linkMatchModeRaw = instrument.getSharedVar("linkMatchMode") ?? instrument.getSharedVar("linkMatch") ?? instrument.getSharedVar("linkMatchStrategy");
+              const linkMatchMode = typeof linkMatchModeRaw === "string" ? linkMatchModeRaw.trim().toLowerCase() : "field";
+              if (linkMatchMode === "datum" || linkMatchMode === "data") {
+                setLinkSelectionPredicate(sourceId, { __libra_datum__: datum2 });
+                return;
+              }
+              const normalizeFields = (raw) => {
+                if (typeof raw === "string" && raw.trim())
+                  return [raw.trim()];
+                if (Array.isArray(raw))
+                  return raw.filter((s) => typeof s === "string" && s.trim()).map((s) => String(s).trim());
+                return [];
+              };
+              const rawLinkFields = instrument.getSharedVar("linkFields") ?? instrument.getSharedVar("linkField") ?? instrument.getSharedVar("linkBy") ?? instrument.getSharedVar("attrName") ?? instrument.getSharedVar("linkAttrName") ?? instrument.getSharedVar("linkAttr");
+              let linkFields = normalizeFields(rawLinkFields);
+              if (linkFields.length === 0) {
+                const candidates = ["id", "ID", "Id", "key", "Key", "name", "Name"];
+                const found = candidates.find((k) => Object.prototype.hasOwnProperty.call(datum2, k));
+                if (found)
+                  linkFields = [found];
+              }
+              const predicate = {};
+              linkFields.forEach((field) => {
+                const v = datum2[field];
+                if (typeof v === "number") {
+                  if (Number.isFinite(v))
+                    predicate[field] = v;
+                  return;
+                }
+                if (typeof v === "string" || typeof v === "boolean") {
+                  predicate[field] = v;
+                }
+              });
+              setLinkSelectionPredicate(sourceId, Object.keys(predicate).length ? predicate : null);
+            }
           }
         ],
         click: [Command2.initialize("Log", { execute() {
         } })]
       },
       preAttach: (instrument, layer) => {
+        const linkLayers = instrument.getSharedVar("linkLayers");
+        if (Array.isArray(linkLayers) && linkLayers.length > 0) {
+          const allLayers = linkLayers.filter((l, i, arr) => {
+            return !!l && arr.indexOf(l) === i;
+          });
+          allLayers.forEach((l) => {
+            transformer_default.initialize("LinkSelectionHubTransformer", {
+              layer: l,
+              sharedVar: {
+                linkStrokeColor: instrument.getSharedVar("linkStrokeColor"),
+                linkStrokeWidth: instrument.getSharedVar("linkStrokeWidth"),
+                highlightColor: instrument.getSharedVar("highlightColor"),
+                highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
+                tooltip: instrument.getSharedVar("tooltip")
+              }
+            });
+          });
+        }
         if (layer.onUpdate) {
           layer.onUpdate((layer2) => {
             const services = instrument.services.find("SelectionService");
@@ -10120,6 +10381,7 @@ var init_builtin3 = __esm({
             }
           });
         }
+        const hasDim = Object.prototype.hasOwnProperty.call(instrument._sharedVar, "dim");
         const renderSelection = instrument.getSharedVar("renderSelection");
         instrument.services.add("SurfacePointSelectionService", {
           layer,
@@ -10129,7 +10391,8 @@ var init_builtin3 = __esm({
             highlightColor: instrument.getSharedVar("highlightColor"),
             highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
             tooltip: instrument.getSharedVar("tooltip"),
-            data: instrument.getSharedVar("data")
+            data: instrument.getSharedVar("data"),
+            ...hasDim ? { dim: instrument.getSharedVar("dim") } : {}
           }
         });
       }
@@ -10219,12 +10482,14 @@ var init_builtin3 = __esm({
         ]
       },
       preAttach: (instrument, layer) => {
+        const hasDim = Object.prototype.hasOwnProperty.call(instrument._sharedVar, "dim");
         instrument.services.add("SurfacePointSelectionService", {
           layer,
           sharedVar: {
             deepClone: instrument.getSharedVar("deepClone"),
             highlightColor: instrument.getSharedVar("highlightColor"),
-            highlightAttrValues: instrument.getSharedVar("highlightAttrValues")
+            highlightAttrValues: instrument.getSharedVar("highlightAttrValues"),
+            ...hasDim ? { dim: instrument.getSharedVar("dim") } : {}
           }
         });
       }
@@ -10411,6 +10676,7 @@ var init_builtin3 = __esm({
       preAttach: (instrument, layer) => {
         const selectionLayer = layer.getLayerFromQueue("selectionLayer");
         const linkLayers = instrument.getSharedVar("linkLayers");
+        const hasDim = Object.prototype.hasOwnProperty.call(instrument._sharedVar, "dim");
         if (Array.isArray(linkLayers) && linkLayers.length > 0) {
           const allLayers = [layer, ...linkLayers].filter((l, i, arr) => !!l && arr.indexOf(l) === i);
           allLayers.forEach((l) => {
@@ -10458,7 +10724,8 @@ var init_builtin3 = __esm({
             ...instrument.getSharedVar("linkBaseOpacity") !== void 0 ? { linkBaseOpacity: instrument.getSharedVar("linkBaseOpacity") } : {},
             ...instrument.getSharedVar("linkSelectedOpacity") !== void 0 ? { linkSelectedOpacity: instrument.getSharedVar("linkSelectedOpacity") } : {},
             ...instrument.getSharedVar("linkStrokeColor") !== void 0 ? { linkStrokeColor: instrument.getSharedVar("linkStrokeColor") } : {},
-            ...instrument.getSharedVar("linkStrokeWidth") !== void 0 ? { linkStrokeWidth: instrument.getSharedVar("linkStrokeWidth") } : {}
+            ...instrument.getSharedVar("linkStrokeWidth") !== void 0 ? { linkStrokeWidth: instrument.getSharedVar("linkStrokeWidth") } : {},
+            ...hasDim ? { dim: instrument.getSharedVar("dim") } : {}
           }
         });
       }
@@ -10533,6 +10800,7 @@ var init_builtin3 = __esm({
       preAttach: (instrument, layer) => {
         const selectionLayer = layer.getLayerFromQueue("selectionLayer");
         const linkLayers = instrument.getSharedVar("linkLayers");
+        const hasDim = Object.prototype.hasOwnProperty.call(instrument._sharedVar, "dim");
         if (Array.isArray(linkLayers) && linkLayers.length > 0) {
           const allLayers = [layer, ...linkLayers].filter((l, i, arr) => !!l && arr.indexOf(l) === i);
           allLayers.forEach((l) => {
@@ -10570,7 +10838,8 @@ var init_builtin3 = __esm({
               linkSelectionSource: String(layer._name ?? instrument._name),
               linkLayers
             } : {},
-            ...instrument.getSharedVar("brushStyle") ? { brushStyle: instrument.getSharedVar("brushStyle") } : {}
+            ...instrument.getSharedVar("brushStyle") ? { brushStyle: instrument.getSharedVar("brushStyle") } : {},
+            ...hasDim ? { dim: instrument.getSharedVar("dim") } : {}
           }
         });
       }
@@ -10645,6 +10914,7 @@ var init_builtin3 = __esm({
       preAttach: (instrument, layer) => {
         const selectionLayer = layer.getLayerFromQueue("selectionLayer");
         const linkLayers = instrument.getSharedVar("linkLayers");
+        const hasDim = Object.prototype.hasOwnProperty.call(instrument._sharedVar, "dim");
         if (Array.isArray(linkLayers) && linkLayers.length > 0) {
           const allLayers = [layer, ...linkLayers].filter((l, i, arr) => !!l && arr.indexOf(l) === i);
           allLayers.forEach((l) => {
@@ -10682,7 +10952,8 @@ var init_builtin3 = __esm({
               linkSelectionSource: String(layer._name ?? instrument._name),
               linkLayers
             } : {},
-            ...instrument.getSharedVar("brushStyle") ? { brushStyle: instrument.getSharedVar("brushStyle") } : {}
+            ...instrument.getSharedVar("brushStyle") ? { brushStyle: instrument.getSharedVar("brushStyle") } : {},
+            ...hasDim ? { dim: instrument.getSharedVar("dim") } : {}
           }
         });
       }
@@ -12070,22 +12341,140 @@ function deepClone(obj) {
   const propertyObject = Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, deepClone(v)]));
   return Object.assign(Object.create(Object.getPrototypeOf(obj)), propertyObject);
 }
+function isLinkPredicatePrimitive(v) {
+  if (typeof v === "number")
+    return Number.isFinite(v);
+  return typeof v === "string" || typeof v === "boolean";
+}
+function normalizeLinkPredicateValue(value) {
+  if (Array.isArray(value)) {
+    if (value.length === 2) {
+      const a = value[0];
+      const b = value[1];
+      if (Number.isFinite(a) && Number.isFinite(b) && a !== b) {
+        const min = Math.min(a, b);
+        const max = Math.max(a, b);
+        return min < max ? { kind: "range", min, max } : null;
+      }
+    }
+    const vals = value.filter(isLinkPredicatePrimitive);
+    if (vals.length === 0)
+      return null;
+    const set3 = new Set(vals);
+    if (set3.size === 1)
+      return { kind: "exact", value: vals[0] };
+    return { kind: "set", values: set3 };
+  }
+  if (isLinkPredicatePrimitive(value)) {
+    return { kind: "exact", value };
+  }
+  if (value && typeof value === "object") {
+    return { kind: "exact", value };
+  }
+  return null;
+}
+function mergeLinkPredicateValues(prev, next) {
+  if (prev.kind === "range" && next.kind === "range") {
+    const min = Math.max(prev.min, next.min);
+    const max = Math.min(prev.max, next.max);
+    return min < max ? { kind: "range", min, max } : null;
+  }
+  if (prev.kind === "exact" && next.kind === "exact") {
+    return prev.value === next.value ? prev : null;
+  }
+  if (prev.kind === "exact" && typeof prev.value === "object")
+    return null;
+  if (next.kind === "exact" && typeof next.value === "object")
+    return null;
+  const exactInRange = (exact, range) => {
+    if (typeof exact !== "number")
+      return null;
+    return exact >= range.min && exact <= range.max ? exact : null;
+  };
+  const exactInSet = (exact, set3) => {
+    return set3.has(exact) ? exact : null;
+  };
+  const setIntersect = (a, b) => {
+    const out = new Set();
+    a.forEach((v) => {
+      if (b.has(v))
+        out.add(v);
+    });
+    return out;
+  };
+  if (prev.kind === "range" && next.kind === "exact") {
+    if (typeof next.value === "object")
+      return null;
+    const hit = exactInRange(next.value, prev);
+    return hit === null ? null : { kind: "exact", value: hit };
+  }
+  if (prev.kind === "exact" && next.kind === "range") {
+    if (typeof prev.value === "object")
+      return null;
+    const hit = exactInRange(prev.value, next);
+    return hit === null ? null : { kind: "exact", value: hit };
+  }
+  if (prev.kind === "set" && next.kind === "exact") {
+    if (typeof next.value === "object")
+      return null;
+    const hit = exactInSet(next.value, prev.values);
+    return hit === null ? null : { kind: "exact", value: hit };
+  }
+  if (prev.kind === "exact" && next.kind === "set") {
+    if (typeof prev.value === "object")
+      return null;
+    const hit = exactInSet(prev.value, next.values);
+    return hit === null ? null : { kind: "exact", value: hit };
+  }
+  if (prev.kind === "set" && next.kind === "set") {
+    const inter = setIntersect(prev.values, next.values);
+    if (inter.size === 0)
+      return null;
+    if (inter.size === 1)
+      return { kind: "exact", value: [...inter][0] };
+    return { kind: "set", values: inter };
+  }
+  const setWithinRange = (set3, range) => {
+    const out = new Set();
+    set3.forEach((v) => {
+      if (typeof v !== "number")
+        return;
+      if (v >= range.min && v <= range.max)
+        out.add(v);
+    });
+    return out;
+  };
+  if (prev.kind === "range" && next.kind === "set") {
+    const inter = setWithinRange(next.values, prev);
+    if (inter.size === 0)
+      return null;
+    if (inter.size === 1)
+      return { kind: "exact", value: [...inter][0] };
+    return { kind: "set", values: inter };
+  }
+  if (prev.kind === "set" && next.kind === "range") {
+    const inter = setWithinRange(prev.values, next);
+    if (inter.size === 0)
+      return null;
+    if (inter.size === 1)
+      return { kind: "exact", value: [...inter][0] };
+    return { kind: "set", values: inter };
+  }
+  return null;
+}
 function setLinkSelectionPredicate(sourceId, predicate) {
   if (!sourceId)
     return;
   const entries = predicate && typeof predicate === "object" ? Object.entries(predicate) : [];
-  const hasAnyValidNumericExtent = entries.some(([, extent]) => {
-    if (!Array.isArray(extent) || extent.length !== 2)
-      return false;
-    const a = extent[0];
-    const b = extent[1];
-    return Number.isFinite(a) && Number.isFinite(b) && a < b;
+  const hasAnyValidPredicate = entries.some(([, value]) => {
+    return normalizeLinkPredicateValue(value) !== null;
   });
-  if (!hasAnyValidNumericExtent) {
+  if (!hasAnyValidPredicate) {
     global.linkSelectionPredicates.delete(sourceId);
   } else {
     global.linkSelectionPredicates.set(sourceId, predicate);
   }
+  console.log("Link Selection Predicates:", global.linkSelectionPredicates);
   global.linkSelectionSubscribers.forEach((cb) => {
     try {
       cb();
@@ -12101,34 +12490,35 @@ function subscribeLinkSelectionPredicates(cb) {
 }
 function getMergedLinkSelectionPredicate() {
   const merged = {};
+  const mergedNormalized = {};
   let empty2 = false;
   global.linkSelectionPredicates.forEach((predicate) => {
     if (!predicate || typeof predicate !== "object")
       return;
-    Object.entries(predicate).forEach(([field, extent]) => {
-      if (!Array.isArray(extent) || extent.length !== 2)
+    Object.entries(predicate).forEach(([field, value]) => {
+      const nextNorm = normalizeLinkPredicateValue(value);
+      if (!nextNorm)
         return;
-      const a = extent[0];
-      const b = extent[1];
-      if (!Number.isFinite(a) || !Number.isFinite(b))
+      const prevNorm = mergedNormalized[field];
+      if (!prevNorm) {
+        mergedNormalized[field] = nextNorm;
         return;
-      const nextMin = Math.min(a, b);
-      const nextMax = Math.max(a, b);
-      if (nextMin === nextMax) {
+      }
+      const mergedValue = mergeLinkPredicateValues(prevNorm, nextNorm);
+      if (!mergedValue) {
         empty2 = true;
         return;
       }
-      const prev = merged[field];
-      if (!prev) {
-        merged[field] = [nextMin, nextMax];
-        return;
-      }
-      const interMin = Math.max(prev[0], nextMin);
-      const interMax = Math.min(prev[1], nextMax);
-      merged[field] = [interMin, interMax];
-      if (!(interMin < interMax))
-        empty2 = true;
+      mergedNormalized[field] = mergedValue;
     });
+  });
+  Object.entries(mergedNormalized).forEach(([field, norm]) => {
+    if (norm.kind === "range")
+      merged[field] = [norm.min, norm.max];
+    else if (norm.kind === "exact")
+      merged[field] = norm.value;
+    else
+      merged[field] = Array.from(norm.values);
   });
   return { extents: merged, empty: empty2 };
 }

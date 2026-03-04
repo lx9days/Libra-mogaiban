@@ -164,7 +164,7 @@ export declare const global: {
 export declare function setLinkSelectionPredicate(sourceId: string, predicate: Record<string, unknown> | null | undefined): void;
 export declare function subscribeLinkSelectionPredicates(cb: () => void): () => void;
 export declare function getMergedLinkSelectionPredicate(): {
-    extents: Record<string, [number, number]>;
+    extents: Record<string, unknown>;
     empty: boolean;
 };
 export declare function checkModifier(event: MouseEvent | TouchEvent, modifier: string): boolean;

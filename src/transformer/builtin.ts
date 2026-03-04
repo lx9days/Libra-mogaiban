@@ -122,14 +122,22 @@ GraphicalTransformer.register("LinkSelectionHubTransformer", {
 
     const merged = helpers.getMergedLinkSelectionPredicate();
     if (merged.empty) return;
-    const validEntries = Object.entries(merged.extents).filter(([, extent]) => {
-      return (
-        Array.isArray(extent) &&
-        extent.length === 2 &&
-        Number.isFinite(extent[0]) &&
-        Number.isFinite(extent[1]) &&
-        extent[0] < extent[1]
-      );
+    const DATUM_REF_FIELD = "__libra_datum__";
+    const isPrimitive = (v: unknown) => {
+      if (typeof v === "number") return Number.isFinite(v);
+      return typeof v === "string" || typeof v === "boolean";
+    };
+    const isNumericRange = (v: unknown) => {
+      if (!Array.isArray(v) || v.length !== 2) return false;
+      const a = (v as any)[0];
+      const b = (v as any)[1];
+      return Number.isFinite(a) && Number.isFinite(b) && a !== b;
+    };
+    const validEntries = Object.entries(merged.extents).filter(([, predicate]) => {
+      if (isNumericRange(predicate)) return true;
+      if (Array.isArray(predicate)) return predicate.some(isPrimitive);
+      if (predicate && typeof predicate === "object") return true;
+      return isPrimitive(predicate);
     });
     if (validEntries.length === 0) return;
 
@@ -142,10 +150,36 @@ GraphicalTransformer.register("LinkSelectionHubTransformer", {
     elements.forEach((el) => {
       const datum = (layer as any).getDatum?.(el);
       if (!datum) return;
-      for (const [field, extent] of validEntries) {
+      const matches = (value: unknown, predicate: unknown) => {
+        if (isNumericRange(predicate)) {
+          if (typeof value !== "number" || !Number.isFinite(value)) return false;
+          const a = (predicate as any)[0];
+          const b = (predicate as any)[1];
+          const min = Math.min(a, b);
+          const max = Math.max(a, b);
+          return value >= min && value <= max;
+        }
+        if (Array.isArray(predicate)) {
+          const setVals = predicate.filter(isPrimitive);
+          if (setVals.length === 0) return false;
+          if (!isPrimitive(value)) return false;
+          return setVals.some((v) => v === (value as any));
+        }
+        if (predicate && typeof predicate === "object") {
+          return value === predicate;
+        }
+        if (!isPrimitive(predicate)) return false;
+        if (!isPrimitive(value)) return false;
+        return value === predicate;
+      };
+
+      for (const [field, predicate] of validEntries) {
+        if (field === DATUM_REF_FIELD) {
+          if (datum !== predicate) return;
+          continue;
+        }
         const value = (datum as any)[field];
-        if (!Number.isFinite(value)) return;
-        if (value < (extent as any)[0] || value > (extent as any)[1]) return;
+        if (!matches(value, predicate)) return;
       }
       matched.push(el);
     });
