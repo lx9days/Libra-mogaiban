@@ -9538,6 +9538,38 @@ var init_eventAnalyzer = __esm({
         this.historyWindow = 200;
         this.stayTimer = null;
         this.lastEventSnapshot = null;
+        this.startDown = null;
+        this.startWindowMs = 200;
+        this.stayEnabled = true;
+        this.moveEnabled = false;
+        this.startAxisEnabled = false;
+        this.movingSince = null;
+        this.lastMoveX = null;
+        this.lastMoveY = null;
+        this.moveThreshold = 0.5;
+        this.startAxisLogged = false;
+        this.pendingStartEvent = null;
+        this.startEventTimer = null;
+      }
+      setEnabledGestures(options) {
+        if (typeof options?.stay === "boolean") {
+          this.stayEnabled = options.stay;
+          if (!this.stayEnabled && this.stayTimer) {
+            clearTimeout(this.stayTimer);
+            this.stayTimer = null;
+          }
+        }
+        if (typeof options?.move === "boolean") {
+          this.moveEnabled = options.move;
+          if (!this.moveEnabled) {
+            this.movingSince = null;
+            this.lastMoveX = null;
+            this.lastMoveY = null;
+          }
+        }
+        if (typeof options?.startAxis === "boolean") {
+          this.startAxisEnabled = options.startAxis;
+        }
       }
       analyze(event) {
         if (event.libraFeatures)
@@ -9555,6 +9587,10 @@ var init_eventAnalyzer = __esm({
         if (event instanceof MouseEvent) {
           clientX = event.clientX;
           clientY = event.clientY;
+          if (event.type === "mousedown") {
+            this.startDown = { x: clientX, y: clientY, t: now2 };
+            this.startAxisLogged = false;
+          }
         } else if (event.changedTouches && event.changedTouches.length > 0) {
           clientX = event.changedTouches[0].clientX;
           clientY = event.changedTouches[0].clientY;
@@ -9576,6 +9612,85 @@ var init_eventAnalyzer = __esm({
           else if (dy > dx && dy > 2)
             features.mainDirection = "y";
         }
+        if (this.startAxisEnabled && this.startDown) {
+          const elapsed = now2 - this.startDown.t;
+          const dxStart = Math.abs(clientX - this.startDown.x);
+          const dyStart = Math.abs(clientY - this.startDown.y);
+          const dist = Math.sqrt(dxStart * dxStart + dyStart * dyStart);
+          let determinedAxis = null;
+          if (dist > 5 && (dxStart > dyStart * 2 || dyStart > dxStart * 2)) {
+            if (dxStart > dyStart)
+              determinedAxis = "x";
+            else
+              determinedAxis = "y";
+          } else if (elapsed >= this.startWindowMs) {
+            if (dxStart > dyStart && dxStart > 2)
+              determinedAxis = "x";
+            else if (dyStart > dxStart && dyStart > 2)
+              determinedAxis = "y";
+            else
+              determinedAxis = "none";
+          }
+          if (determinedAxis) {
+            features.startAxis = determinedAxis;
+            if (this.pendingStartEvent) {
+              this.flushPendingStart(determinedAxis);
+            }
+            if (!this.startAxisLogged && (features.startAxis === "x" || features.startAxis === "y")) {
+              const label = features.startAxis === "x" ? "start-horizontally" : "start-vertically";
+              try {
+                console.log("[Libra Debug]", label);
+              } catch {
+              }
+              this.startAxisLogged = true;
+            }
+          } else {
+            features.startAxis = "none";
+          }
+        } else {
+          features.startAxis = "none";
+        }
+        if (event instanceof MouseEvent && event.type === "mousedown" && this.startAxisEnabled && !event.libraStartEvent) {
+          this.pendingStartEvent = event;
+          if (this.startEventTimer)
+            clearTimeout(this.startEventTimer);
+          this.startEventTimer = setTimeout(() => {
+            this.flushPendingStart("none");
+          }, this.startWindowMs);
+          features.buffered = true;
+          event.libraFeatures = features;
+          return features;
+        }
+        if (event instanceof MouseEvent && event.type === "mouseup" && this.pendingStartEvent) {
+          this.flushPendingStart("none");
+        }
+        if (this.moveEnabled && event instanceof MouseEvent && event.type === "mousemove") {
+          const lastX = this.lastMoveX;
+          const lastY = this.lastMoveY;
+          if (lastX === null || lastY === null) {
+            this.lastMoveX = clientX;
+            this.lastMoveY = clientY;
+            this.movingSince = null;
+            features.moveElapsed = 0;
+          } else {
+            const dx = clientX - lastX;
+            const dy = clientY - lastY;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist > this.moveThreshold) {
+              if (this.movingSince === null)
+                this.movingSince = now2;
+              this.lastMoveX = clientX;
+              this.lastMoveY = clientY;
+            } else {
+              this.movingSince = null;
+              this.lastMoveX = clientX;
+              this.lastMoveY = clientY;
+            }
+            features.moveElapsed = this.movingSince === null ? 0 : now2 - this.movingSince;
+          }
+        } else {
+          features.moveElapsed = 0;
+        }
         if (!this.dwellStart) {
           this.dwellStart = { x: clientX, y: clientY, t: now2 };
         } else {
@@ -9592,7 +9707,7 @@ var init_eventAnalyzer = __esm({
           }
         }
         event.libraFeatures = features;
-        if (!isStayEvent && event instanceof MouseEvent && event.type === "mousemove") {
+        if (this.stayEnabled && !isStayEvent && event instanceof MouseEvent && event.type === "mousemove") {
           if (this.stayTimer)
             clearTimeout(this.stayTimer);
           const timeElapsed = features.dwellTime;
@@ -9622,6 +9737,48 @@ var init_eventAnalyzer = __esm({
         }
         return features;
       }
+      flushPendingStart(forcedAxis) {
+        if (!this.pendingStartEvent)
+          return;
+        if (this.startEventTimer) {
+          clearTimeout(this.startEventTimer);
+          this.startEventTimer = null;
+        }
+        const event = this.pendingStartEvent;
+        this.pendingStartEvent = null;
+        const features = {
+          dwellTime: 0,
+          mainDirection: "none",
+          displacementX: 0,
+          displacementY: 0,
+          history: [],
+          startAxis: forcedAxis || "none",
+          moveElapsed: 0,
+          buffered: false
+        };
+        const newEvent = new MouseEvent(event.type, {
+          bubbles: event.bubbles,
+          cancelable: event.cancelable,
+          view: event.view,
+          detail: event.detail,
+          screenX: event.screenX,
+          screenY: event.screenY,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          ctrlKey: event.ctrlKey,
+          altKey: event.altKey,
+          shiftKey: event.shiftKey,
+          metaKey: event.metaKey,
+          button: event.button,
+          buttons: event.buttons,
+          relatedTarget: event.relatedTarget
+        });
+        newEvent.libraFeatures = features;
+        newEvent.libraStartEvent = true;
+        if (event.target) {
+          event.target.dispatchEvent(newEvent);
+        }
+      }
       dispatchStayEvent() {
         if (!this.lastEventSnapshot || !this.lastEventSnapshot.target)
           return;
@@ -9629,7 +9786,6 @@ var init_eventAnalyzer = __esm({
         if (snapshot.target instanceof Node && !snapshot.target.isConnected) {
           return;
         }
-        console.log("[Libra Debug] Dispatching synthetic stay event from snapshot", snapshot);
         const stayEvent = new MouseEvent(snapshot.type, {
           bubbles: snapshot.bubbles,
           cancelable: snapshot.cancelable,
@@ -9959,7 +10115,34 @@ var init_instrument = __esm({
         });
       }
       async _dispatch(layer, event, e) {
-        eventAnalyzer.analyze(e);
+        try {
+          const anyStayGesture = instanceInstruments.some((inst) => {
+            const g = inst.getSharedVar("gesture");
+            return typeof g === "string" && g.toLowerCase() === "stay";
+          });
+          const anyMoveGesture = instanceInstruments.some((inst) => {
+            const g = inst.getSharedVar("gesture");
+            return typeof g === "string" && g.toLowerCase() === "move";
+          });
+          const anyStartAxisGesture = instanceInstruments.some((inst) => {
+            const g = inst.getSharedVar("gesture");
+            const gv = typeof g === "string" ? g.toLowerCase() : "";
+            return gv === "start-horizontally" || gv === "start-vertically";
+          });
+          eventAnalyzer.setEnabledGestures({
+            stay: anyStayGesture,
+            move: anyMoveGesture,
+            startAxis: anyStartAxisGesture
+          });
+        } catch {
+        }
+        const features = eventAnalyzer.analyze(e);
+        if (features.buffered) {
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          return;
+        }
         if (layer._baseName !== "Layer") {
           e.preventDefault();
           e.stopPropagation();
@@ -10190,14 +10373,30 @@ var init_instrument = __esm({
             continue;
           }
           const gesture = instrument.getSharedVar("gesture");
+          const gestureMoveDelay = instrument.getSharedVar("gestureMoveDelay") || 200;
           const isStayEvent = e.libraStayEvent;
+          const features2 = e.libraFeatures;
           if (gesture === "stay") {
-            const features = e.libraFeatures;
-            if (!isStayEvent && (!features || features.dwellTime < 1e3)) {
+            if (!isStayEvent && (!features2 || features2.dwellTime < 1e3)) {
               continue;
             }
           } else if (isStayEvent) {
             continue;
+          } else if (gesture === "move") {
+            const elapsed = features2 && Number.isFinite(features2.moveElapsed) ? features2.moveElapsed : 0;
+            if (elapsed < gestureMoveDelay) {
+              continue;
+            }
+          } else if (gesture === "start-horizontally") {
+            const axis = features2 && features2.startAxis ? features2.startAxis : "none";
+            if (axis !== "x") {
+              continue;
+            }
+          } else if (gesture === "start-vertically") {
+            const axis = features2 && features2.startAxis ? features2.startAxis : "none";
+            if (axis !== "y") {
+              continue;
+            }
           }
           try {
             let flag = await inter.dispatch(e, layr, pickingResult);
