@@ -1,5 +1,6 @@
 import { createHistoryTrrack } from "./history";
 import { Interaction } from "./interaction";
+import * as helpers from "./helpers";
 declare const _default: {
     Command: typeof import("./command").default;
     Instrument: typeof import("./instrument").default;
@@ -9,6 +10,7 @@ declare const _default: {
     createHistoryTrrack: typeof createHistoryTrrack;
     GraphicalTransformer: typeof import("./transformer").default;
     Interaction: typeof Interaction;
+    helpers: typeof helpers;
 };
 export default _default;
 export { Command } from "./command";
@@ -19,3 +21,4 @@ export { Service } from "./service";
 export { createHistoryTrrack } from "./history";
 export { GraphicalTransformer } from "./transformer";
 export { Interaction } from "./interaction";
+export * as helpers from "./helpers";

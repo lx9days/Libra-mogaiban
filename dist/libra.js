@@ -12266,6 +12266,23 @@ var init_history = __esm({
 });
 
 // dist/esm/helpers.js
+var helpers_exports = {};
+__export(helpers_exports, {
+  DataQueryType: () => DataQueryType,
+  LibraSymbol: () => LibraSymbol,
+  QueryType: () => QueryType,
+  ShapeQueryType: () => ShapeQueryType,
+  checkModifier: () => checkModifier,
+  deepClone: () => deepClone,
+  getMergedLinkSelectionPredicate: () => getMergedLinkSelectionPredicate,
+  getTransform: () => getTransform,
+  global: () => global,
+  globalConfig: () => globalConfig,
+  makeFindableList: () => makeFindableList,
+  parseEventSelector: () => parseEventSelector,
+  setLinkSelectionPredicate: () => setLinkSelectionPredicate,
+  subscribeLinkSelectionPredicates: () => subscribeLinkSelectionPredicates
+});
 function makeFindableList(list, typing, addFunc, removeFunc, self) {
   return new Proxy(list, {
     get(target, p) {
@@ -13357,6 +13374,7 @@ var Interaction = class {
 };
 
 // dist/esm/index.js
+init_helpers();
 init_command2();
 init_instrument2();
 init_interactor2();
@@ -13364,6 +13382,7 @@ init_layer2();
 init_service2();
 init_history();
 init_transformer2();
+init_helpers();
 var esm_default = {
   Command,
   Instrument: Instrument2,
@@ -13372,7 +13391,8 @@ var esm_default = {
   Service: Service2,
   createHistoryTrrack,
   GraphicalTransformer: GraphicalTransformer2,
-  Interaction
+  Interaction,
+  helpers: helpers_exports
 };
 export {
   Command,
@@ -13383,5 +13403,6 @@ export {
   Layer2 as Layer,
   Service2 as Service,
   createHistoryTrrack,
-  esm_default as default
+  esm_default as default,
+  helpers_exports as helpers
 };
