@@ -10117,15 +10117,15 @@ var init_instrument = __esm({
       async _dispatch(layer, event, e) {
         try {
           const anyStayGesture = instanceInstruments.some((inst) => {
-            const g = inst.getSharedVar("gesture");
-            return typeof g === "string" && g.toLowerCase() === "stay";
+            const g = inst.getSharedVar("syntheticEvent");
+            return typeof g === "string" && g.toLowerCase() === "idle";
           });
           const anyMoveGesture = instanceInstruments.some((inst) => {
-            const g = inst.getSharedVar("gesture");
+            const g = inst.getSharedVar("syntheticEvent");
             return typeof g === "string" && g.toLowerCase() === "move";
           });
           const anyStartAxisGesture = instanceInstruments.some((inst) => {
-            const g = inst.getSharedVar("gesture");
+            const g = inst.getSharedVar("syntheticEvent");
             const gv = typeof g === "string" ? g.toLowerCase() : "";
             return gv === "start-horizontally" || gv === "start-vertically";
           });
@@ -10372,27 +10372,27 @@ var init_instrument = __esm({
           if (e instanceof MouseEvent && !checkModifier(e, modifierKey)) {
             continue;
           }
-          const gesture = instrument.getSharedVar("gesture");
+          const syntheticEvent = instrument.getSharedVar("syntheticEvent");
           const gestureMoveDelay = instrument.getSharedVar("gestureMoveDelay") || 200;
           const isStayEvent = e.libraStayEvent;
           const features2 = e.libraFeatures;
-          if (gesture === "stay") {
+          if (syntheticEvent === "idle") {
             if (!isStayEvent && (!features2 || features2.dwellTime < 1e3)) {
               continue;
             }
           } else if (isStayEvent) {
             continue;
-          } else if (gesture === "move") {
+          } else if (syntheticEvent === "move") {
             const elapsed = features2 && Number.isFinite(features2.moveElapsed) ? features2.moveElapsed : 0;
             if (elapsed < gestureMoveDelay) {
               continue;
             }
-          } else if (gesture === "start-horizontally") {
+          } else if (syntheticEvent === "start-horizontally") {
             const axis = features2 && features2.startAxis ? features2.startAxis : "none";
             if (axis !== "x") {
               continue;
             }
-          } else if (gesture === "start-vertically") {
+          } else if (syntheticEvent === "start-vertically") {
             const axis = features2 && features2.startAxis ? features2.startAxis : "none";
             if (axis !== "y") {
               continue;

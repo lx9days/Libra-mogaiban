@@ -477,15 +477,15 @@ export default class Instrument {
   async _dispatch(layer: Layer<any>, event: string, e: Event) {
     try {
       const anyStayGesture = instanceInstruments.some((inst) => {
-        const g = inst.getSharedVar("gesture");
-        return typeof g === "string" && g.toLowerCase() === "stay";
+        const g = inst.getSharedVar("syntheticEvent");
+        return typeof g === "string" && g.toLowerCase() === "idle";
       });
       const anyMoveGesture = instanceInstruments.some((inst) => {
-        const g = inst.getSharedVar("gesture");
+        const g = inst.getSharedVar("syntheticEvent");
         return typeof g === "string" && g.toLowerCase() === "move";
       });
       const anyStartAxisGesture = instanceInstruments.some((inst) => {
-        const g = inst.getSharedVar("gesture");
+        const g = inst.getSharedVar("syntheticEvent");
         const gv = typeof g === "string" ? g.toLowerCase() : "";
         return gv === "start-horizontally" || gv === "start-vertically";
       });
@@ -507,6 +507,7 @@ export default class Instrument {
       e.stopPropagation();
       e.stopImmediatePropagation();
     }
+
 
     // Feedforward Mechanism
     if (event === "mousemove" && e instanceof MouseEvent) {
@@ -827,12 +828,12 @@ if (!layers) return;
         continue;
       }
       
-      const gesture = instrument.getSharedVar("gesture");
+      const syntheticEvent = instrument.getSharedVar("syntheticEvent");
       const gestureMoveDelay = instrument.getSharedVar("gestureMoveDelay") || 200;
       const isStayEvent = (e as any).libraStayEvent;
       const features = (e as any).libraFeatures;
 
-      if (gesture === "stay") {
+      if (syntheticEvent === "idle") {
         // If it's a stay event, we allow it (features.dwellTime should be sufficient, but the flag is the key)
         if (!isStayEvent && (!features || features.dwellTime < 1000)) {
           continue;
@@ -840,17 +841,17 @@ if (!layers) return;
       } else if (isStayEvent) {
         // Normal instruments should ignore the synthetic stay event to avoid double triggering
         continue;
-      } else if (gesture === "move") {
+      } else if (syntheticEvent === "move") {
          const elapsed = features && Number.isFinite(features.moveElapsed) ? features.moveElapsed : 0;
          if (elapsed < gestureMoveDelay) {
              continue;
          }
-      } else if (gesture === "start-horizontally") {
+      } else if (syntheticEvent === "start-horizontally") {
          const axis = features && features.startAxis ? features.startAxis : "none";
          if (axis !== "x") {
              continue;
          }
-      } else if (gesture === "start-vertically") {
+      } else if (syntheticEvent === "start-vertically") {
          const axis = features && features.startAxis ? features.startAxis : "none";
          if (axis !== "y") {
              continue;
