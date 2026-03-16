@@ -739,72 +739,166 @@ function mergeLinkPredicateValues(
   return null;
 }
 
+export interface LinkSelectionHub {
+  set(sourceId: string, predicate: unknown): void;
+  subscribe(cb: () => void): () => void;
+  get(): unknown;
+}
+
+export class SelectionHub implements LinkSelectionHub {
+  private predicates = new Map<string, Record<string, unknown>>();
+  private subscribers = new Set<() => void>();
+
+  set(sourceId: string, predicate: Record<string, unknown> | null | undefined) {
+    if (!sourceId) return;
+    const entries =
+      predicate && typeof predicate === "object"
+        ? Object.entries(predicate)
+        : [];
+    const hasAnyValidPredicate = entries.some(([, value]) => {
+      return normalizeLinkPredicateValue(value) !== null;
+    });
+
+    if (!hasAnyValidPredicate) {
+      this.predicates.delete(sourceId);
+    } else {
+      this.predicates.set(sourceId, predicate as Record<string, unknown>);
+    }
+
+    console.log("Selection Hub Update:", this.predicates);
+
+    this.notify();
+  }
+
+  subscribe(cb: () => void) {
+    this.subscribers.add(cb);
+    return () => {
+      this.subscribers.delete(cb);
+    };
+  }
+
+  private notify() {
+    this.subscribers.forEach((cb) => {
+      try {
+        cb();
+      } catch {}
+    });
+  }
+
+  get() {
+    const merged: Record<string, unknown> = {};
+    const mergedNormalized: Record<string, LinkPredicateNormalized> = {};
+    let empty = false;
+
+    this.predicates.forEach((predicate) => {
+      if (!predicate || typeof predicate !== "object") return;
+      Object.entries(predicate).forEach(([field, value]) => {
+        const nextNorm = normalizeLinkPredicateValue(value);
+        if (!nextNorm) return;
+
+        const prevNorm = mergedNormalized[field];
+        if (!prevNorm) {
+          mergedNormalized[field] = nextNorm;
+          return;
+        }
+
+        const mergedValue = mergeLinkPredicateValues(prevNorm, nextNorm);
+        if (!mergedValue) {
+          empty = true;
+          return;
+        }
+        mergedNormalized[field] = mergedValue;
+      });
+    });
+
+    Object.entries(mergedNormalized).forEach(([field, norm]) => {
+      if (norm.kind === "range") merged[field] = [norm.min, norm.max];
+      else if (norm.kind === "exact") merged[field] = norm.value;
+      else merged[field] = Array.from(norm.values);
+    });
+
+    return { extents: merged, empty };
+  }
+}
+
+export class GenericHub implements LinkSelectionHub {
+  private predicates = new Map<string, unknown>();
+  private subscribers = new Set<() => void>();
+
+  set(sourceId: string, predicate: unknown) {
+    if (!sourceId) return;
+    
+    if (predicate === null || predicate === undefined) {
+      this.predicates.delete(sourceId);
+    } else {
+      this.predicates.set(sourceId, predicate);
+    }
+
+    this.notify();
+  }
+
+  subscribe(cb: () => void) {
+    this.subscribers.add(cb);
+    return () => {
+      this.subscribers.delete(cb);
+    };
+  }
+
+  private notify() {
+    this.subscribers.forEach((cb) => {
+      try {
+        cb();
+      } catch {}
+    });
+  }
+
+  get() {
+    // Generic hub simply returns all predicates as a map object
+    // It does not attempt to merge them
+    return Object.fromEntries(this.predicates);
+  }
+}
+
+export class LinkSelectionHubManager {
+  private hubs = new Map<string, LinkSelectionHub>();
+  static DEFAULT_HUB_ID = "default";
+
+  constructor() {
+    // Initialize with the default SelectionHub to maintain backward compatibility behavior
+    this.hubs.set(LinkSelectionHubManager.DEFAULT_HUB_ID, new SelectionHub());
+  }
+
+  getHub(hubId: string): LinkSelectionHub | undefined {
+    return this.hubs.get(hubId);
+  }
+
+  createHub(hubId: string, type: "selection" | "generic"): LinkSelectionHub {
+    const hub = type === "selection" ? new SelectionHub() : new GenericHub();
+    this.hubs.set(hubId, hub);
+    return hub;
+  }
+  
+  getDefaultHub() {
+      return this.hubs.get(LinkSelectionHubManager.DEFAULT_HUB_ID)!;
+  }
+}
+
+export const globalHubManager = new LinkSelectionHubManager();
+
+// Backward compatibility wrappers
 export function setLinkSelectionPredicate(
   sourceId: string,
   predicate: Record<string, unknown> | null | undefined
 ) {
-  if (!sourceId) return;
-  const entries =
-    predicate && typeof predicate === "object" ? Object.entries(predicate) : [];
-  const hasAnyValidPredicate = entries.some(([, value]) => {
-    return normalizeLinkPredicateValue(value) !== null;
-  });
-
-  if (!hasAnyValidPredicate) {
-    global.linkSelectionPredicates.delete(sourceId);
-  } else {
-    global.linkSelectionPredicates.set(sourceId, predicate as Record<string, unknown>);
-  }
-
-  console.log("Link Selection Predicates:", global.linkSelectionPredicates);
-
-  global.linkSelectionSubscribers.forEach((cb) => {
-    try {
-      cb();
-    } catch {}
-  });
+  globalHubManager.getDefaultHub().set(sourceId, predicate);
 }
 
 export function subscribeLinkSelectionPredicates(cb: () => void) {
-  global.linkSelectionSubscribers.add(cb);
-  return () => {
-    global.linkSelectionSubscribers.delete(cb);
-  };
+  return globalHubManager.getDefaultHub().subscribe(cb);
 }
 
 export function getMergedLinkSelectionPredicate() {
-  const merged: Record<string, unknown> = {};
-  const mergedNormalized: Record<string, LinkPredicateNormalized> = {};
-  let empty = false;
-
-  global.linkSelectionPredicates.forEach((predicate) => {
-    if (!predicate || typeof predicate !== "object") return;
-    Object.entries(predicate).forEach(([field, value]) => {
-      const nextNorm = normalizeLinkPredicateValue(value);
-      if (!nextNorm) return;
-
-      const prevNorm = mergedNormalized[field];
-      if (!prevNorm) {
-        mergedNormalized[field] = nextNorm;
-        return;
-      }
-
-      const mergedValue = mergeLinkPredicateValues(prevNorm, nextNorm);
-      if (!mergedValue) {
-        empty = true;
-        return;
-      }
-      mergedNormalized[field] = mergedValue;
-    });
-  });
-
-  Object.entries(mergedNormalized).forEach(([field, norm]) => {
-    if (norm.kind === "range") merged[field] = [norm.min, norm.max];
-    else if (norm.kind === "exact") merged[field] = norm.value;
-    else merged[field] = Array.from(norm.values);
-  });
-
-  return { extents: merged, empty };
+  return globalHubManager.getDefaultHub().get() as { extents: Record<string, unknown>, empty: boolean };
 }
 
 import("./history").then((HM) => {

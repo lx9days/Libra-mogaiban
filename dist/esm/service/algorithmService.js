@@ -62,7 +62,7 @@ Service.register("FilterService", {
 });
 Service.register("InterpolationService", {
     constructor: AnalysisService,
-    evaluate({ result, field, data, formula }) {
+    evaluate({ result, field, data, formula, hubId, sourceId }) {
         if (!result) {
             return null;
         }
@@ -88,7 +88,7 @@ Service.register("InterpolationService", {
                 }));
             });
         }
-        return newInterpolatedData.map((d) => {
+        const finalData = newInterpolatedData.map((d) => {
             if (formula) {
                 Object.entries(formula).forEach(([k, v]) => {
                     d[k] = v(d);
@@ -96,6 +96,13 @@ Service.register("InterpolationService", {
             }
             return d;
         });
+        if (hubId && sourceId) {
+            const hub = helpers.globalHubManager.getHub(hubId);
+            if (hub) {
+                hub.set(sourceId, finalData);
+            }
+        }
+        return finalData;
     },
 });
 Service.register("DataJoinService", {

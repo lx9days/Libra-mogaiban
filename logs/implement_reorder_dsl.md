@@ -14,9 +14,9 @@
 
 - `Instrument`: 必须为 `"reordering"`（大小写不敏感，编译时会转成小写判断）
 - `Trigger`: 必须为 `"Drag"`（会被校验是否允许）
-- `"Target layer"`: 触发拖拽的目标 layer 名称
+- `targetLayer`: 触发拖拽的目标 layer 名称
 - `Direction`: `"x"` 或 `"y"`，表示在横向或纵向上重排
-- `"Feedback options"`: 主要承载 `contextRef` 与可选 `redrawRef`
+- `feedbackOptions`: 主要承载 `contextRef` 与可选 `redrawRef`
 
 最小示例（需要提供 redraw 或 autoRedraw 才会在拖拽结束更新画面）：
 
@@ -24,9 +24,9 @@
 {
   Instrument: "reordering",
   Trigger: "Drag",
-  "Target layer": "xAxisLayer",
+  targetLayer: "xAxisLayer",
   Direction: "x",
-  "Feedback options": {
+  feedbackOptions: {
     contextRef: {
       names,
       scales: { x: scaleX, y: scaleY },
@@ -67,15 +67,15 @@ reorder 的重排结果（`reorderedNames`, `x`, `y`）需要在 **拖拽结束*
 
 ### 3.1 显式回调（redrawRef）
 
-在 `"Feedback options"` 中提供 `redrawRef`（函数），由 DSL 编译器传入 reorder instrument：
+在 `feedbackOptions` 中提供 `redrawRef`（函数），由 DSL 编译器传入 reorder instrument：
 
 ```js
 {
   Instrument: "reordering",
   Trigger: "Drag",
-  "Target layer": "headersLayer",
+  targetLayer: "headersLayer",
   Direction: "x",
-  "Feedback options": {
+  feedbackOptions: {
     redrawRef: redrawParallel,
     contextRef: { names, scales: { x }, copyFrom: Object.values(axisLayers), offset: { x: MARGIN.left, y: 0 } }
   }
@@ -125,9 +125,9 @@ autoRedraw: { type: "matrix" }
 
 ## 4. layersByName 传参建议
 
-`compileInteractionsDSL([...], { layersByName: { ... } })` 用来把 DSL 中 `"Target layer"` 名称解析到具体 layer 实例。
+`compileInteractionsDSL([...], { layersByName: { ... } })` 用来把 DSL 中 `targetLayer` 名称解析到具体 layer 实例。
 
-reorder 规则至少需要能解析 `"Target layer"` 对应 layer：
+reorder 规则至少需要能解析 `targetLayer` 对应 layer：
 
 ```js
 await compileInteractionsDSL(interactions, {
@@ -152,9 +152,9 @@ const interactions = [
   {
     Instrument: "reordering",
     Trigger: "Drag",
-    "Target layer": "xAxisLayer",
+    targetLayer: "xAxisLayer",
     Direction: "x",
-    "Feedback options": {
+    feedbackOptions: {
       contextRef: {
         names,
         scales: { x: scaleX, y: scaleY },
@@ -167,9 +167,9 @@ const interactions = [
   {
     Instrument: "reordering",
     Trigger: "Drag",
-    "Target layer": "yAxisLayer",
+    targetLayer: "yAxisLayer",
     Direction: "y",
-    "Feedback options": {
+    feedbackOptions: {
       contextRef: {
         names,
         scales: { x: scaleX, y: scaleY },

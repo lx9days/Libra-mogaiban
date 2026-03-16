@@ -9,7 +9,7 @@
 ## 复现环境
 - Demo：`CompilerDemo/src/pages/group-selection/group-selection.js`
   - DSL：`Trigger: brush`
-  - `Feedback options`：
+  - `feedbackOptions`：
     - `Highlight: "#00ff1aff"`
     - `Dim: { opacity: 0.1, selector: ".mark" }`
     - `RemnantKey: "shift"`

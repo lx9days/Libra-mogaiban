@@ -23,7 +23,7 @@ type HistoryManagerTrrackInstance = {
     undo(): Promise<void>;
     redo(): Promise<void>;
 };
-export declare function createHistoryTrrack(): Promise<{
+export declare function createHistoryTrack(): Promise<{
     traceStructure: (node?: HistoryNode) => HistoryTrrackNodeDescription;
     commit: (commandName?: string) => Promise<void>;
     undo(): Promise<void>;

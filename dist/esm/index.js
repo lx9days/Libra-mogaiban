@@ -3,7 +3,7 @@ import { Instrument } from "./instrument";
 import { Interactor } from "./interactor";
 import { Layer } from "./layer";
 import { Service } from "./service";
-import { createHistoryTrrack } from "./history";
+import { createHistoryTrack } from "./history";
 import { GraphicalTransformer } from "./transformer";
 import { Interaction } from "./interaction";
 import * as helpers from "./helpers";
@@ -13,7 +13,7 @@ export default {
     Interactor,
     Layer,
     Service,
-    createHistoryTrrack,
+    createHistoryTrack,
     GraphicalTransformer,
     Interaction,
     helpers,
@@ -23,7 +23,7 @@ export { Instrument } from "./instrument";
 export { Interactor } from "./interactor";
 export { Layer } from "./layer";
 export { Service } from "./service";
-export { createHistoryTrrack } from "./history";
+export { createHistoryTrack } from "./history";
 export { GraphicalTransformer } from "./transformer";
 export { Interaction } from "./interaction";
 export * as helpers from "./helpers";

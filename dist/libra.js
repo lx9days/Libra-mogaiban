@@ -5807,7 +5807,14 @@ var init_selectionService = __esm({
           this._selectionMapping.clear();
           if (this._sharedVar.linkSelection || this._sharedVar.linkLayers) {
             const sourceId = String(this._sharedVar.linkSelectionSource ?? this._baseName);
-            setLinkSelectionPredicate(sourceId, null);
+            if (this._sharedVar.linkSelectionHub) {
+              const hub = globalHubManager.getHub(this._sharedVar.linkSelectionHub);
+              if (hub) {
+                hub.set(sourceId, null);
+              }
+            } else {
+              setLinkSelectionPredicate(sourceId, null);
+            }
           }
           if (!options?.passive) {
             this._sharedVar.attrName = [];
@@ -5833,7 +5840,14 @@ var init_selectionService = __esm({
           this._selectionMapping.set(this._currentDimension[0][0], this._currentDimension[0][1](extent).sort((a, b) => typeof a === "number" ? a - b : a < b ? -1 : a == b ? 0 : 1));
           if (this._sharedVar.linkSelection || this._sharedVar.linkLayers) {
             const sourceId = String(this._sharedVar.linkSelectionSource ?? this._baseName);
-            setLinkSelectionPredicate(sourceId, this.extents);
+            if (this._sharedVar.linkSelectionHub) {
+              const hub = globalHubManager.getHub(this._sharedVar.linkSelectionHub);
+              if (hub) {
+                hub.set(sourceId, this.extents);
+              }
+            } else {
+              setLinkSelectionPredicate(sourceId, this.extents);
+            }
           }
           if (!options?.passive) {
             this._sharedVar.attrName = [...this._selectionMapping.keys()];
@@ -6108,7 +6122,7 @@ var init_algorithmService = __esm({
     });
     Service.register("InterpolationService", {
       constructor: AnalysisService,
-      evaluate({ result, field, data, formula }) {
+      evaluate({ result, field, data, formula, hubId, sourceId }) {
         if (!result) {
           return null;
         }
@@ -6132,7 +6146,7 @@ var init_algorithmService = __esm({
             }));
           });
         }
-        return newInterpolatedData.map((d) => {
+        const finalData = newInterpolatedData.map((d) => {
           if (formula) {
             Object.entries(formula).forEach(([k, v]) => {
               d[k] = v(d);
@@ -6140,6 +6154,13 @@ var init_algorithmService = __esm({
           }
           return d;
         });
+        if (hubId && sourceId) {
+          const hub = globalHubManager.getHub(hubId);
+          if (hub) {
+            hub.set(sourceId, finalData);
+          }
+        }
+        return finalData;
       }
     });
     Service.register("DataJoinService", {
@@ -12065,11 +12086,11 @@ var init_instrument2 = __esm({
 // dist/esm/history/index.js
 var history_exports = {};
 __export(history_exports, {
-  createHistoryTrrack: () => createHistoryTrrack,
+  createHistoryTrack: () => createHistoryTrack,
   tryGetHistoryTrrackInstance: () => tryGetHistoryTrrackInstance,
   tryRegisterDynamicInstance: () => tryRegisterDynamicInstance
 });
-async function createHistoryTrrack() {
+async function createHistoryTrack() {
   let historyTrace = null;
   let currentHistoryNode = null;
   let commitLock = false;
@@ -12269,8 +12290,11 @@ var init_history = __esm({
 var helpers_exports = {};
 __export(helpers_exports, {
   DataQueryType: () => DataQueryType,
+  GenericHub: () => GenericHub,
   LibraSymbol: () => LibraSymbol,
+  LinkSelectionHubManager: () => LinkSelectionHubManager,
   QueryType: () => QueryType,
+  SelectionHub: () => SelectionHub,
   ShapeQueryType: () => ShapeQueryType,
   checkModifier: () => checkModifier,
   deepClone: () => deepClone,
@@ -12278,6 +12302,7 @@ __export(helpers_exports, {
   getTransform: () => getTransform,
   global: () => global,
   globalConfig: () => globalConfig,
+  globalHubManager: () => globalHubManager,
   makeFindableList: () => makeFindableList,
   parseEventSelector: () => parseEventSelector,
   setLinkSelectionPredicate: () => setLinkSelectionPredicate,
@@ -12679,64 +12704,13 @@ function mergeLinkPredicateValues(prev, next) {
   return null;
 }
 function setLinkSelectionPredicate(sourceId, predicate) {
-  if (!sourceId)
-    return;
-  const entries = predicate && typeof predicate === "object" ? Object.entries(predicate) : [];
-  const hasAnyValidPredicate = entries.some(([, value]) => {
-    return normalizeLinkPredicateValue(value) !== null;
-  });
-  if (!hasAnyValidPredicate) {
-    global.linkSelectionPredicates.delete(sourceId);
-  } else {
-    global.linkSelectionPredicates.set(sourceId, predicate);
-  }
-  console.log("Link Selection Predicates:", global.linkSelectionPredicates);
-  global.linkSelectionSubscribers.forEach((cb) => {
-    try {
-      cb();
-    } catch {
-    }
-  });
+  globalHubManager.getDefaultHub().set(sourceId, predicate);
 }
 function subscribeLinkSelectionPredicates(cb) {
-  global.linkSelectionSubscribers.add(cb);
-  return () => {
-    global.linkSelectionSubscribers.delete(cb);
-  };
+  return globalHubManager.getDefaultHub().subscribe(cb);
 }
 function getMergedLinkSelectionPredicate() {
-  const merged = {};
-  const mergedNormalized = {};
-  let empty2 = false;
-  global.linkSelectionPredicates.forEach((predicate) => {
-    if (!predicate || typeof predicate !== "object")
-      return;
-    Object.entries(predicate).forEach(([field, value]) => {
-      const nextNorm = normalizeLinkPredicateValue(value);
-      if (!nextNorm)
-        return;
-      const prevNorm = mergedNormalized[field];
-      if (!prevNorm) {
-        mergedNormalized[field] = nextNorm;
-        return;
-      }
-      const mergedValue = mergeLinkPredicateValues(prevNorm, nextNorm);
-      if (!mergedValue) {
-        empty2 = true;
-        return;
-      }
-      mergedNormalized[field] = mergedValue;
-    });
-  });
-  Object.entries(mergedNormalized).forEach(([field, norm]) => {
-    if (norm.kind === "range")
-      merged[field] = [norm.min, norm.max];
-    else if (norm.kind === "exact")
-      merged[field] = norm.value;
-    else
-      merged[field] = Array.from(norm.values);
-  });
-  return { extents: merged, empty: empty2 };
+  return globalHubManager.getDefaultHub().get();
 }
 function checkModifier(event, modifier) {
   if (!modifier)
@@ -12758,7 +12732,7 @@ function checkModifier(event, modifier) {
       return true;
   }
 }
-var LibraSymbol, globalConfig, QueryType, ShapeQueryType, DataQueryType, NonsenseClass, tryRegisterDynamicInstance2, VIEW, LBRACK, RBRACK, LBRACE, RBRACE, COLON, COMMA, NAME, GT, ILLEGAL, DEFAULT_SOURCE, DEFAULT_MARKS, MARKS, global;
+var LibraSymbol, globalConfig, QueryType, ShapeQueryType, DataQueryType, NonsenseClass, tryRegisterDynamicInstance2, VIEW, LBRACK, RBRACK, LBRACE, RBRACE, COLON, COMMA, NAME, GT, ILLEGAL, DEFAULT_SOURCE, DEFAULT_MARKS, MARKS, global, SelectionHub, GenericHub, LinkSelectionHubManager, globalHubManager;
 var init_helpers = __esm({
   "dist/esm/helpers.js"() {
     LibraSymbol = Symbol("Libra");
@@ -12818,6 +12792,127 @@ var init_helpers = __esm({
       linkSelectionPredicates: new Map(),
       linkSelectionSubscribers: new Set()
     };
+    SelectionHub = class {
+      constructor() {
+        this.predicates = new Map();
+        this.subscribers = new Set();
+      }
+      set(sourceId, predicate) {
+        if (!sourceId)
+          return;
+        const entries = predicate && typeof predicate === "object" ? Object.entries(predicate) : [];
+        const hasAnyValidPredicate = entries.some(([, value]) => {
+          return normalizeLinkPredicateValue(value) !== null;
+        });
+        if (!hasAnyValidPredicate) {
+          this.predicates.delete(sourceId);
+        } else {
+          this.predicates.set(sourceId, predicate);
+        }
+        console.log("Selection Hub Update:", this.predicates);
+        this.notify();
+      }
+      subscribe(cb) {
+        this.subscribers.add(cb);
+        return () => {
+          this.subscribers.delete(cb);
+        };
+      }
+      notify() {
+        this.subscribers.forEach((cb) => {
+          try {
+            cb();
+          } catch {
+          }
+        });
+      }
+      get() {
+        const merged = {};
+        const mergedNormalized = {};
+        let empty2 = false;
+        this.predicates.forEach((predicate) => {
+          if (!predicate || typeof predicate !== "object")
+            return;
+          Object.entries(predicate).forEach(([field, value]) => {
+            const nextNorm = normalizeLinkPredicateValue(value);
+            if (!nextNorm)
+              return;
+            const prevNorm = mergedNormalized[field];
+            if (!prevNorm) {
+              mergedNormalized[field] = nextNorm;
+              return;
+            }
+            const mergedValue = mergeLinkPredicateValues(prevNorm, nextNorm);
+            if (!mergedValue) {
+              empty2 = true;
+              return;
+            }
+            mergedNormalized[field] = mergedValue;
+          });
+        });
+        Object.entries(mergedNormalized).forEach(([field, norm]) => {
+          if (norm.kind === "range")
+            merged[field] = [norm.min, norm.max];
+          else if (norm.kind === "exact")
+            merged[field] = norm.value;
+          else
+            merged[field] = Array.from(norm.values);
+        });
+        return { extents: merged, empty: empty2 };
+      }
+    };
+    GenericHub = class {
+      constructor() {
+        this.predicates = new Map();
+        this.subscribers = new Set();
+      }
+      set(sourceId, predicate) {
+        if (!sourceId)
+          return;
+        if (predicate === null || predicate === void 0) {
+          this.predicates.delete(sourceId);
+        } else {
+          this.predicates.set(sourceId, predicate);
+        }
+        this.notify();
+      }
+      subscribe(cb) {
+        this.subscribers.add(cb);
+        return () => {
+          this.subscribers.delete(cb);
+        };
+      }
+      notify() {
+        this.subscribers.forEach((cb) => {
+          try {
+            cb();
+          } catch {
+          }
+        });
+      }
+      get() {
+        return Object.fromEntries(this.predicates);
+      }
+    };
+    LinkSelectionHubManager = class {
+      constructor() {
+        this.hubs = new Map();
+        this.hubs.set(LinkSelectionHubManager.DEFAULT_HUB_ID, new SelectionHub());
+      }
+      getHub(hubId) {
+        return this.hubs.get(hubId);
+      }
+      createHub(hubId, type2) {
+        const hub = type2 === "selection" ? new SelectionHub() : new GenericHub();
+        this.hubs.set(hubId, hub);
+        return hub;
+      }
+      getDefaultHub() {
+        return this.hubs.get(LinkSelectionHubManager.DEFAULT_HUB_ID);
+      }
+    };
+    LinkSelectionHubManager.DEFAULT_HUB_ID = "default";
+    globalHubManager = new LinkSelectionHubManager();
     Promise.resolve().then(() => (init_history(), history_exports)).then((HM) => {
       tryRegisterDynamicInstance2 = HM.tryRegisterDynamicInstance;
     });
@@ -13389,7 +13484,7 @@ var esm_default = {
   Interactor: Interactor2,
   Layer: Layer2,
   Service: Service2,
-  createHistoryTrrack,
+  createHistoryTrack,
   GraphicalTransformer: GraphicalTransformer2,
   Interaction,
   helpers: helpers_exports
@@ -13402,7 +13497,7 @@ export {
   Interactor2 as Interactor,
   Layer2 as Layer,
   Service2 as Service,
-  createHistoryTrrack,
+  createHistoryTrack,
   esm_default as default,
   helpers_exports as helpers
 };

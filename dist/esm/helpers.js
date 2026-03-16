@@ -471,66 +471,143 @@ function mergeLinkPredicateValues(prev, next) {
     }
     return null;
 }
-export function setLinkSelectionPredicate(sourceId, predicate) {
-    if (!sourceId)
-        return;
-    const entries = predicate && typeof predicate === "object" ? Object.entries(predicate) : [];
-    const hasAnyValidPredicate = entries.some(([, value]) => {
-        return normalizeLinkPredicateValue(value) !== null;
-    });
-    if (!hasAnyValidPredicate) {
-        global.linkSelectionPredicates.delete(sourceId);
+export class SelectionHub {
+    constructor() {
+        this.predicates = new Map();
+        this.subscribers = new Set();
     }
-    else {
-        global.linkSelectionPredicates.set(sourceId, predicate);
-    }
-    console.log("Link Selection Predicates:", global.linkSelectionPredicates);
-    global.linkSelectionSubscribers.forEach((cb) => {
-        try {
-            cb();
+    set(sourceId, predicate) {
+        if (!sourceId)
+            return;
+        const entries = predicate && typeof predicate === "object"
+            ? Object.entries(predicate)
+            : [];
+        const hasAnyValidPredicate = entries.some(([, value]) => {
+            return normalizeLinkPredicateValue(value) !== null;
+        });
+        if (!hasAnyValidPredicate) {
+            this.predicates.delete(sourceId);
         }
-        catch { }
-    });
+        else {
+            this.predicates.set(sourceId, predicate);
+        }
+        console.log("Selection Hub Update:", this.predicates);
+        this.notify();
+    }
+    subscribe(cb) {
+        this.subscribers.add(cb);
+        return () => {
+            this.subscribers.delete(cb);
+        };
+    }
+    notify() {
+        this.subscribers.forEach((cb) => {
+            try {
+                cb();
+            }
+            catch { }
+        });
+    }
+    get() {
+        const merged = {};
+        const mergedNormalized = {};
+        let empty = false;
+        this.predicates.forEach((predicate) => {
+            if (!predicate || typeof predicate !== "object")
+                return;
+            Object.entries(predicate).forEach(([field, value]) => {
+                const nextNorm = normalizeLinkPredicateValue(value);
+                if (!nextNorm)
+                    return;
+                const prevNorm = mergedNormalized[field];
+                if (!prevNorm) {
+                    mergedNormalized[field] = nextNorm;
+                    return;
+                }
+                const mergedValue = mergeLinkPredicateValues(prevNorm, nextNorm);
+                if (!mergedValue) {
+                    empty = true;
+                    return;
+                }
+                mergedNormalized[field] = mergedValue;
+            });
+        });
+        Object.entries(mergedNormalized).forEach(([field, norm]) => {
+            if (norm.kind === "range")
+                merged[field] = [norm.min, norm.max];
+            else if (norm.kind === "exact")
+                merged[field] = norm.value;
+            else
+                merged[field] = Array.from(norm.values);
+        });
+        return { extents: merged, empty };
+    }
+}
+export class GenericHub {
+    constructor() {
+        this.predicates = new Map();
+        this.subscribers = new Set();
+    }
+    set(sourceId, predicate) {
+        if (!sourceId)
+            return;
+        if (predicate === null || predicate === undefined) {
+            this.predicates.delete(sourceId);
+        }
+        else {
+            this.predicates.set(sourceId, predicate);
+        }
+        this.notify();
+    }
+    subscribe(cb) {
+        this.subscribers.add(cb);
+        return () => {
+            this.subscribers.delete(cb);
+        };
+    }
+    notify() {
+        this.subscribers.forEach((cb) => {
+            try {
+                cb();
+            }
+            catch { }
+        });
+    }
+    get() {
+        // Generic hub simply returns all predicates as a map object
+        // It does not attempt to merge them
+        return Object.fromEntries(this.predicates);
+    }
+}
+export class LinkSelectionHubManager {
+    constructor() {
+        this.hubs = new Map();
+        // Initialize with the default SelectionHub to maintain backward compatibility behavior
+        this.hubs.set(LinkSelectionHubManager.DEFAULT_HUB_ID, new SelectionHub());
+    }
+    getHub(hubId) {
+        return this.hubs.get(hubId);
+    }
+    createHub(hubId, type) {
+        const hub = type === "selection" ? new SelectionHub() : new GenericHub();
+        this.hubs.set(hubId, hub);
+        return hub;
+    }
+    getDefaultHub() {
+        return this.hubs.get(LinkSelectionHubManager.DEFAULT_HUB_ID);
+    }
+}
+LinkSelectionHubManager.DEFAULT_HUB_ID = "default";
+export const globalHubManager = new LinkSelectionHubManager();
+// Backward compatibility wrappers
+export function setLinkSelectionPredicate(sourceId, predicate) {
+    globalHubManager.getDefaultHub().set(sourceId, predicate);
 }
 export function subscribeLinkSelectionPredicates(cb) {
-    global.linkSelectionSubscribers.add(cb);
-    return () => {
-        global.linkSelectionSubscribers.delete(cb);
-    };
+    return globalHubManager.getDefaultHub().subscribe(cb);
 }
 export function getMergedLinkSelectionPredicate() {
-    const merged = {};
-    const mergedNormalized = {};
-    let empty = false;
-    global.linkSelectionPredicates.forEach((predicate) => {
-        if (!predicate || typeof predicate !== "object")
-            return;
-        Object.entries(predicate).forEach(([field, value]) => {
-            const nextNorm = normalizeLinkPredicateValue(value);
-            if (!nextNorm)
-                return;
-            const prevNorm = mergedNormalized[field];
-            if (!prevNorm) {
-                mergedNormalized[field] = nextNorm;
-                return;
-            }
-            const mergedValue = mergeLinkPredicateValues(prevNorm, nextNorm);
-            if (!mergedValue) {
-                empty = true;
-                return;
-            }
-            mergedNormalized[field] = mergedValue;
-        });
-    });
-    Object.entries(mergedNormalized).forEach(([field, norm]) => {
-        if (norm.kind === "range")
-            merged[field] = [norm.min, norm.max];
-        else if (norm.kind === "exact")
-            merged[field] = norm.value;
-        else
-            merged[field] = Array.from(norm.values);
-    });
-    return { extents: merged, empty };
+    return globalHubManager.getDefaultHub().get();
 }
 import("./history").then((HM) => {
     tryRegisterDynamicInstance = HM.tryRegisterDynamicInstance;

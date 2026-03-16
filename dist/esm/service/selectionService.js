@@ -516,7 +516,15 @@ export default class SelectionService extends Service {
             this._selectionMapping.clear();
             if (this._sharedVar.linkSelection || this._sharedVar.linkLayers) {
                 const sourceId = String(this._sharedVar.linkSelectionSource ?? this._baseName);
-                helpers.setLinkSelectionPredicate(sourceId, null);
+                if (this._sharedVar.linkSelectionHub) {
+                    const hub = helpers.globalHubManager.getHub(this._sharedVar.linkSelectionHub);
+                    if (hub) {
+                        hub.set(sourceId, null);
+                    }
+                }
+                else {
+                    helpers.setLinkSelectionPredicate(sourceId, null);
+                }
             }
             if (!options?.passive) {
                 this._sharedVar.attrName = [];
@@ -549,7 +557,15 @@ export default class SelectionService extends Service {
                 .sort((a, b) => typeof a === "number" ? a - b : a < b ? -1 : a == b ? 0 : 1));
             if (this._sharedVar.linkSelection || this._sharedVar.linkLayers) {
                 const sourceId = String(this._sharedVar.linkSelectionSource ?? this._baseName);
-                helpers.setLinkSelectionPredicate(sourceId, this.extents);
+                if (this._sharedVar.linkSelectionHub) {
+                    const hub = helpers.globalHubManager.getHub(this._sharedVar.linkSelectionHub);
+                    if (hub) {
+                        hub.set(sourceId, this.extents);
+                    }
+                }
+                else {
+                    helpers.setLinkSelectionPredicate(sourceId, this.extents);
+                }
             }
             if (!options?.passive) {
                 this._sharedVar.attrName = [...this._selectionMapping.keys()];

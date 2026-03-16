@@ -42,7 +42,7 @@ const historyInstanceMapping = new Map<
   HistoryManagerTrrackInstance
 >();
 
-export async function createHistoryTrrack() {
+export async function createHistoryTrack() {
   let historyTrace: HistoryNode = null;
   let currentHistoryNode: HistoryNode = null;
   let commitLock = false;

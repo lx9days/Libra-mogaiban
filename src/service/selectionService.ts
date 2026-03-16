@@ -563,7 +563,14 @@ export default class SelectionService extends Service {
         const sourceId = String(
           this._sharedVar.linkSelectionSource ?? this._baseName
         );
-        helpers.setLinkSelectionPredicate(sourceId, null);
+        if (this._sharedVar.linkSelectionHub) {
+          const hub = helpers.globalHubManager.getHub(this._sharedVar.linkSelectionHub);
+          if (hub) {
+            hub.set(sourceId, null);
+          }
+        } else {
+          helpers.setLinkSelectionPredicate(sourceId, null);
+        }
       }
       if (!options?.passive) {
         this._sharedVar.attrName = [];
@@ -608,7 +615,14 @@ export default class SelectionService extends Service {
         const sourceId = String(
           this._sharedVar.linkSelectionSource ?? this._baseName
         );
-        helpers.setLinkSelectionPredicate(sourceId, this.extents);
+        if (this._sharedVar.linkSelectionHub) {
+          const hub = helpers.globalHubManager.getHub(this._sharedVar.linkSelectionHub);
+          if (hub) {
+            hub.set(sourceId, this.extents);
+          }
+        } else {
+          helpers.setLinkSelectionPredicate(sourceId, this.extents);
+        }
       }
       if (!options?.passive) {
         this._sharedVar.attrName = [...this._selectionMapping.keys()];

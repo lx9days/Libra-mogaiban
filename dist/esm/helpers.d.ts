@@ -161,6 +161,41 @@ export declare const global: {
     linkSelectionPredicates: Map<string, Record<string, unknown>>;
     linkSelectionSubscribers: Set<() => void>;
 };
+export interface LinkSelectionHub {
+    set(sourceId: string, predicate: unknown): void;
+    subscribe(cb: () => void): () => void;
+    get(): unknown;
+}
+export declare class SelectionHub implements LinkSelectionHub {
+    private predicates;
+    private subscribers;
+    set(sourceId: string, predicate: Record<string, unknown> | null | undefined): void;
+    subscribe(cb: () => void): () => void;
+    private notify;
+    get(): {
+        extents: Record<string, unknown>;
+        empty: boolean;
+    };
+}
+export declare class GenericHub implements LinkSelectionHub {
+    private predicates;
+    private subscribers;
+    set(sourceId: string, predicate: unknown): void;
+    subscribe(cb: () => void): () => void;
+    private notify;
+    get(): {
+        [k: string]: unknown;
+    };
+}
+export declare class LinkSelectionHubManager {
+    private hubs;
+    static DEFAULT_HUB_ID: string;
+    constructor();
+    getHub(hubId: string): LinkSelectionHub | undefined;
+    createHub(hubId: string, type: "selection" | "generic"): LinkSelectionHub;
+    getDefaultHub(): LinkSelectionHub;
+}
+export declare const globalHubManager: LinkSelectionHubManager;
 export declare function setLinkSelectionPredicate(sourceId: string, predicate: Record<string, unknown> | null | undefined): void;
 export declare function subscribeLinkSelectionPredicates(cb: () => void): () => void;
 export declare function getMergedLinkSelectionPredicate(): {

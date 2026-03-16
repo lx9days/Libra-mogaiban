@@ -5,7 +5,7 @@ import { instanceInstruments } from "../instrument";
 import { instanceInteractors } from "../interactor";
 import { deepClone } from "../helpers";
 const historyInstanceMapping = new Map();
-export async function createHistoryTrrack() {
+export async function createHistoryTrack() {
     let historyTrace = null;
     let currentHistoryNode = null;
     let commitLock = false;
