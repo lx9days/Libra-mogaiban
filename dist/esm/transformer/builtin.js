@@ -191,21 +191,20 @@ GraphicalTransformer.register("LinkSelectionHubTransformer", {
             transformer.setSharedVar("_selectionTransformer", selectionTransformer);
         }
         const highlightAttrValues = transformer.getSharedVar("highlightAttrValues");
-        const linkStrokeColor = transformer.getSharedVar("linkStrokeColor") ??
-            transformer.getSharedVar("highlightColor") ??
-            "#00ff1aff";
+        const highlightColor = transformer.getSharedVar("highlightColor");
+        const linkStrokeColor = transformer.getSharedVar("linkStrokeColor");
         const linkStrokeWidth = transformer.getSharedVar("linkStrokeWidth") ?? 1;
         selectionTransformer.setSharedVars({
             layer: selectionLayer,
             result: resultNodes,
-            highlightColor: undefined,
+            highlightColor: highlightColor,
             highlightAttrValues: {
+                ...(!highlightColor && !linkStrokeColor ? { fill: "none", stroke: "#00ff1aff" } : {}),
+                ...(linkStrokeColor ? { stroke: linkStrokeColor } : {}),
+                "stroke-width": linkStrokeWidth,
                 ...(highlightAttrValues && typeof highlightAttrValues === "object"
                     ? highlightAttrValues
                     : {}),
-                fill: "none",
-                stroke: String(linkStrokeColor),
-                "stroke-width": String(linkStrokeWidth),
             },
             tooltip: transformer.getSharedVar("tooltip"),
         });

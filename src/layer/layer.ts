@@ -214,6 +214,9 @@ export default class Layer<T> {
     const frag = document.createDocumentFragment();
     frag.append(copiedElement);
     (copiedElement as any).__libra__screenElement = element;
+    if ('__data__' in element) {
+      (copiedElement as any).__data__ = (element as any).__data__;
+    }
     return copiedElement;
   }
   getDatum(elem: Element): any {

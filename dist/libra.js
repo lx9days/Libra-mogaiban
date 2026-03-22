@@ -4809,17 +4809,18 @@ var init_builtin = __esm({
           transformer.setSharedVar("_selectionTransformer", selectionTransformer);
         }
         const highlightAttrValues = transformer.getSharedVar("highlightAttrValues");
-        const linkStrokeColor = transformer.getSharedVar("linkStrokeColor") ?? transformer.getSharedVar("highlightColor") ?? "#00ff1aff";
+        const highlightColor = transformer.getSharedVar("highlightColor");
+        const linkStrokeColor = transformer.getSharedVar("linkStrokeColor");
         const linkStrokeWidth = transformer.getSharedVar("linkStrokeWidth") ?? 1;
         selectionTransformer.setSharedVars({
           layer: selectionLayer,
           result: resultNodes,
-          highlightColor: void 0,
+          highlightColor,
           highlightAttrValues: {
-            ...highlightAttrValues && typeof highlightAttrValues === "object" ? highlightAttrValues : {},
-            fill: "none",
-            stroke: String(linkStrokeColor),
-            "stroke-width": String(linkStrokeWidth)
+            ...!highlightColor && !linkStrokeColor ? { fill: "none", stroke: "#00ff1aff" } : {},
+            ...linkStrokeColor ? { stroke: linkStrokeColor } : {},
+            "stroke-width": linkStrokeWidth,
+            ...highlightAttrValues && typeof highlightAttrValues === "object" ? highlightAttrValues : {}
           },
           tooltip: transformer.getSharedVar("tooltip")
         });
@@ -6778,6 +6779,9 @@ var init_layer = __esm({
         const frag = document.createDocumentFragment();
         frag.append(copiedElement);
         copiedElement.__libra__screenElement = element;
+        if ("__data__" in element) {
+          copiedElement.__data__ = element.__data__;
+        }
         return copiedElement;
       }
       getDatum(elem) {
@@ -6941,10 +6945,13 @@ var init_d3Layer = __esm({
         return elems;
       }
       cloneVisualElements(element, deep = false) {
-        const copiedElement = select_default2(element).clone(deep).node();
+        const copiedElement = element.cloneNode(deep);
         const frag = document.createDocumentFragment();
         frag.append(copiedElement);
         copiedElement.__libra__screenElement = element;
+        if ("__data__" in element) {
+          copiedElement.__data__ = element.__data__;
+        }
         return copiedElement;
       }
       select(selector) {

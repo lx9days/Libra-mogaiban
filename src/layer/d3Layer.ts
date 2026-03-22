@@ -84,10 +84,13 @@ export default class D3Layer extends Layer<SVGElement> {
   }
 
   cloneVisualElements(element: Element, deep: boolean = false) {
-    const copiedElement = d3.select(element).clone(deep).node();
+    const copiedElement = element.cloneNode(deep) as Element;
     const frag = document.createDocumentFragment();
     frag.append(copiedElement);
     (copiedElement as any).__libra__screenElement = element;
+    if ('__data__' in element) {
+      (copiedElement as any).__data__ = (element as any).__data__;
+    }
     return copiedElement;
   }
 
