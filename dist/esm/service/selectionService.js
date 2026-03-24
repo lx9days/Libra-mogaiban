@@ -104,7 +104,10 @@ export default class SelectionService extends Service {
             resultAlias: options?.resultAlias ?? "result",
         });
         this._currentDimension = [];
-        if (options?.renderSelection !== false) {
+        const renderSelectionOption = options?.renderSelection;
+        const renderSelectionShared = options?.sharedVar?.renderSelection;
+        const shouldAttachSelectionTransformer = !(renderSelectionOption === false || renderSelectionShared === false);
+        if (shouldAttachSelectionTransformer) {
             console.log("[SelectionService] Attaching SelectionTransformer to", this._baseName, this);
             this._transformers.push(GraphicalTransformer.initialize("SelectionTransformer", {
                 transient: true,
