@@ -4722,7 +4722,8 @@ var init_builtin = __esm({
         if (!unsub) {
           transformer.setSharedVar("_linkSelectionHubUnsub", subscribeLinkSelectionPredicates(() => transformer.redraw()));
         }
-        const selectionLayer = layer.getLayerFromQueue("selectionLayer");
+        const selectionLayerName = transformer.getSharedVar("selectionLayer") ?? "linkSelectionLayer";
+        const selectionLayer = layer.getLayerFromQueue(selectionLayerName);
         const selectionGraphic = selectionLayer.getGraphic();
         if (!selectionGraphic)
           return;
@@ -4756,6 +4757,14 @@ var init_builtin = __esm({
           return;
         const elements = typeof layer.getVisualElements === "function" ? layer.getVisualElements() : select_default2(layer.getGraphic()).selectAll("*").nodes();
         const matched = [];
+        console.log("[LinkSelectionHubTransformer] Target LinkLayer Elements count:", elements.length);
+        console.log("[LinkSelectionHubTransformer] Active Predicate (validEntries):", validEntries);
+        const firstValidDatum = elements.map((el) => layer.getDatum?.(el)).find((d) => !!d);
+        if (firstValidDatum) {
+          console.log("[LinkSelectionHubTransformer] Sample Edge Datum (Metadata):", firstValidDatum);
+        } else {
+          console.warn("[LinkSelectionHubTransformer] Warning: No datum found on any edge elements!");
+        }
         elements.forEach((el) => {
           const datum2 = layer.getDatum?.(el);
           if (!datum2)
@@ -4774,9 +4783,15 @@ var init_builtin = __esm({
               const setVals = predicate.filter(isPrimitive);
               if (setVals.length === 0)
                 return false;
+              if (Array.isArray(value)) {
+                return setVals.some((p) => value.includes(p));
+              }
               if (!isPrimitive(value))
                 return false;
               return setVals.some((v) => v === value);
+            }
+            if (Array.isArray(value) && isPrimitive(predicate)) {
+              return value.includes(predicate);
             }
             if (predicate && typeof predicate === "object") {
               return value === predicate;
@@ -4794,11 +4809,16 @@ var init_builtin = __esm({
               continue;
             }
             const value = datum2[field];
-            if (!matches(value, predicate))
+            const isMatch = matches(value, predicate);
+            if (value !== void 0) {
+              console.log(`[LinkSelectionHubTransformer] Checking Edge - Field [${field}]: EdgeValue =`, value, `| Predicate =`, predicate, `| Match?`, isMatch);
+            }
+            if (!isMatch)
               return;
           }
           matched.push(el);
         });
+        console.log("[LinkSelectionHubTransformer] Final matched edges count:", matched.length);
         const resultNodes = matched.map((node) => layer.cloneVisualElements?.(node, false));
         let selectionTransformer = transformer.getSharedVar("_selectionTransformer");
         if (!selectionTransformer) {
@@ -5478,7 +5498,7 @@ var init_selectionService = __esm({
           resultAlias: options?.resultAlias ?? "result"
         });
         this._currentDimension = [];
-        if (options?.renderSelection !== false) {
+        if ((options?.renderSelection ?? options?.sharedVar?.renderSelection) !== false) {
           console.log("[SelectionService] Attaching SelectionTransformer to", this._baseName, this);
           this._transformers.push(GraphicalTransformer2.initialize("SelectionTransformer", {
             transient: true,

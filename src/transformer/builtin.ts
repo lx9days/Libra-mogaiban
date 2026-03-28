@@ -115,7 +115,8 @@ GraphicalTransformer.register("LinkSelectionHubTransformer", {
       );
     }
 
-    const selectionLayer = layer.getLayerFromQueue("selectionLayer");
+    const selectionLayerName = transformer.getSharedVar("selectionLayer") ?? "linkSelectionLayer";
+    const selectionLayer = layer.getLayerFromQueue(selectionLayerName);
     const selectionGraphic = selectionLayer.getGraphic();
     if (!selectionGraphic) return;
     selectionGraphic.innerHTML = "";
@@ -147,6 +148,18 @@ GraphicalTransformer.register("LinkSelectionHubTransformer", {
         : d3.select(layer.getGraphic()).selectAll("*").nodes();
 
     const matched: Element[] = [];
+    console.log("[LinkSelectionHubTransformer] Target LinkLayer Elements count:", elements.length);
+    console.log("[LinkSelectionHubTransformer] Active Predicate (validEntries):", validEntries);
+    
+    // --- Debug: Dump the first valid edge datum to inspect its structure ---
+    const firstValidDatum = elements.map(el => (layer as any).getDatum?.(el)).find(d => !!d);
+    if (firstValidDatum) {
+      console.log("[LinkSelectionHubTransformer] Sample Edge Datum (Metadata):", firstValidDatum);
+    } else {
+      console.warn("[LinkSelectionHubTransformer] Warning: No datum found on any edge elements!");
+    }
+    // --- End Debug ---
+
     elements.forEach((el) => {
       const datum = (layer as any).getDatum?.(el);
       if (!datum) return;
@@ -162,9 +175,21 @@ GraphicalTransformer.register("LinkSelectionHubTransformer", {
         if (Array.isArray(predicate)) {
           const setVals = predicate.filter(isPrimitive);
           if (setVals.length === 0) return false;
+          
+          // If value is also an array, check for intersection
+          if (Array.isArray(value)) {
+            return setVals.some((p) => value.includes(p as any));
+          }
+          
           if (!isPrimitive(value)) return false;
           return setVals.some((v) => v === (value as any));
         }
+        
+        // If predicate is a primitive, but value is an array (e.g. edge has multiple nodeIds)
+        if (Array.isArray(value) && isPrimitive(predicate)) {
+          return value.includes(predicate as any);
+        }
+        
         if (predicate && typeof predicate === "object") {
           return value === predicate;
         }
@@ -179,10 +204,22 @@ GraphicalTransformer.register("LinkSelectionHubTransformer", {
           continue;
         }
         const value = (datum as any)[field];
-        if (!matches(value, predicate)) return;
+        const isMatch = matches(value, predicate);
+        
+        // --- Debug Log Start ---
+        // We only log when the field exists in datum to avoid flooding the console too much,
+        // but log both success and failure to help debug.
+        if (value !== undefined) {
+           console.log(`[LinkSelectionHubTransformer] Checking Edge - Field [${field}]: EdgeValue =`, value, `| Predicate =`, predicate, `| Match?`, isMatch);
+        }
+        // --- Debug Log End ---
+
+        if (!isMatch) return;
       }
       matched.push(el);
     });
+
+    console.log("[LinkSelectionHubTransformer] Final matched edges count:", matched.length);
 
     const resultNodes = matched.map((node) =>
       (layer as any).cloneVisualElements?.(node, false)

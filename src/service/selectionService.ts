@@ -102,7 +102,7 @@ export default class SelectionService extends Service {
       ...options,
       resultAlias: options?.resultAlias ?? "result",
     });
-    if (options?.renderSelection !== false) {
+    if ((options?.renderSelection ?? options?.sharedVar?.renderSelection) !== false) {
       console.log("[SelectionService] Attaching SelectionTransformer to", this._baseName, this);
       this._transformers.push(
         GraphicalTransformer.initialize("SelectionTransformer", {
