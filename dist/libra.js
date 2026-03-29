@@ -12012,6 +12012,8 @@ var init_builtin3 = __esm({
               y: event.clientY,
               startx: event.clientX,
               starty: event.clientY,
+              startOffsetX: event.offsetX,
+              startOffsetY: event.offsetY,
               currentx: event.clientX,
               currenty: event.clientY,
               offsetx: event.offsetX,
