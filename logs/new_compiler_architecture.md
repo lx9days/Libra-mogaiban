@@ -45,11 +45,35 @@
 
 4. **Edge Lens / Link Selection** (`edge-lens/edge-lens.js`)
    - **状态**: 已验证
-   - **关键特性**: 验证了基于 `LinkSelectionHubTransformer` 和全局 `Selection Hub` 的连边拓扑选择逻辑（节点悬浮联动连边高亮）。
+   - **关键特性**: 验证了基于 `LinkSelectionHubTransformer` 和全局 `Selection Hub` 的连边拓扑选择逻辑（节点悬浮联动连边高亮）；验证了使用 `customFeedbackFlow` 注入自定义底层服务（如 `EdgeLensLayoutService`）以实现边排斥（Edge Lens）效果。
 
 5. **Point Selection** (`point-selection/point-selection.js`)
    - **状态**: 已验证
    - **关键特性**: 验证了基础点选交互（Hover / Click）的触发条件、事件流阻断机制（stopPropagation）与反馈渲染。
+
+6. **Teaser Matrix** (`teaser-Matrix/teaser-Matrix.js`)
+   - **状态**: 已验证
+   - **关键特性**: 验证了基于新版 DSL 的矩阵行列拖拽重排（Reorder）交互基础用例；展示了 `redrawFunc: "default"` 的内置矩阵自动重绘逻辑。
+
+7. **Gesture Matrix** (`gesture-matrix/gesture-matrix.js`)
+   - **状态**: 已验证
+   - **关键特性**: 在 `Teaser Matrix` 基础上，进一步支持了在 `trigger` 内部定义 `syntheticEvent`，以细分拖拽方向并实现不同手势对应的重排逻辑。
+
+8. **Simple Parallel Coordinate** (`SimpleParallelCoordinate/SimpleParallelCoordinate.js`)
+   - **状态**: 已验证
+   - **关键特性**: 验证了平行坐标轴场景下的多维交互组合（包含 Axis Selection 与 Reorder）；移除了冗余的全局平移/缩放逻辑；使用自定义 `redrawFunc` 渲染拖拽更新；验证并修复了 `reorderCompiler` 对图层数组（Layer Array）作为 `copyFrom` 目标的支持。
+
+9. **Parallel Coordinate** (`ParallelCoordinate/ParallelCoordinate.js`)
+   - **状态**: 已验证
+   - **关键特性**: 在多层平行坐标轴基础上，验证了复合交互能力：包含数据连线点选（Point Selection）、坐标轴刷选过滤数据（Axis Selection，联动 `LinkRectSelectionService` 执行数据级谓词匹配而非相交计算）以及坐标轴拖拽重排（Reorder）；确认了 `layersByName` 中辅助层与核心层（如 `mainLayer`）的正确别名映射。
+
+10. **Teaser Simple SPLOM** (`teaser-SimpleSPLOM/teaser-SimpleSPLOM.js`)
+    - **状态**: 已验证
+    - **关键特性**: 验证了散点图矩阵（SPLOM）场景下的坐标轴拖拽重排（Reorder）以及对角线外单元格的跨图层联动刷选（Group Selection）；展示了如何将连线不透明度配置与跨单元格通信所用的比例尺规范化封装进 `feedback.context.link` 中。
+
+11. **SPLOM** (`SPLOM/SPLOM.js`)
+    - **状态**: 已验证
+    - **关键特性**: 验证了平移（Pan）与缩放（Zoom）在新版 DSL 规范下通过 `feedback.context` 提供 `scaleX`/`scaleY` 参数的机制，并在 `navigationCompiler.js` 及 `builderRegistry.js` 层面补充了相应解析和注册逻辑；成功将旧版 `reordering` 和 `group selection` 迁移至新版嵌套结构（如 `feedback.service` 和 `feedback.feedforward`）。
 
 ---
 *注：未来新增交互或进行功能对接时，需确保相应的 Compiler 已注册于 `instrumentRules.js`，并在多图层场景下注意 `pointer-events` 的分配与 `postUpdate()` 生命周期同步。*
