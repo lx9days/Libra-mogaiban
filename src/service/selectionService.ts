@@ -249,6 +249,12 @@ export default class SelectionService extends Service {
         this._result = newResult;
       }
 
+      if (this.isInstanceOf("RectSelectionService") || this.isInstanceOf("SelectionService")) {
+        console.log(
+          `[SelectionService Debug] 选区范围更新: x=${this._sharedVar.x?.toFixed(1)}, y=${this._sharedVar.y?.toFixed(1)}, w=${this._sharedVar.width?.toFixed(1)}, h=${this._sharedVar.height?.toFixed(1)} | 命中元素数量: ${this._result?.length || 0}`
+        );
+      }
+
       if (this.isInstanceOf("SurfacePointSelectionService")) {
         // console.log(
         //   "[SurfacePointSelectionService] picking result:",

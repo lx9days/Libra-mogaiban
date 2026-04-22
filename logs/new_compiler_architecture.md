@@ -75,5 +75,13 @@
     - **状态**: 已验证
     - **关键特性**: 验证了平移（Pan）与缩放（Zoom）在新版 DSL 规范下通过 `feedback.context` 提供 `scaleX`/`scaleY` 参数的机制，并在 `navigationCompiler.js` 及 `builderRegistry.js` 层面补充了相应解析和注册逻辑；成功将旧版 `reordering` 和 `group selection` 迁移至新版嵌套结构（如 `feedback.service` 和 `feedback.feedforward`）。
 
+12. **Categorical Beeswarm** (`categorical-beeswarm/categorical-beeswarm.js`)
+    - **状态**: 已验证
+    - **关键特性**: 验证了蜂群图场景下分类轴的拖拽重排（Reorder）与主图的框选高亮（Group Selection）；修复了由于图层内部平移导致重排序拖拽位置计算偏差的问题，并演示了如何通过设置 `feedforward.offset` 为图层反向偏移来消除拖拽克隆时的视觉跳动。
+
+13. **Simple Categorical Plots** (`SimpleCategoricalPlots/SimpleCategoricalPlots.js`)
+    - **状态**: 已验证
+    - **关键特性**: 验证了分类点图场景下的坐标轴拖拽重排（Reorder）与主图的框选高亮（Group Selection）；修复了 `LibraManager.getOrCreateLayer` 的 fallback 图层机制中由于坐标系不匹配（局部坐标 vs 视口坐标）导致克隆对象拾取行偏移的问题，确立了图层 Picking 方法中全局视口坐标转换的标准。
+
 ---
 *注：未来新增交互或进行功能对接时，需确保相应的 Compiler 已注册于 `instrumentRules.js`，并在多图层场景下注意 `pointer-events` 的分配与 `postUpdate()` 生命周期同步。*

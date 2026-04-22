@@ -5599,6 +5599,9 @@ var init_selectionService = __esm({
           } else {
             this._result = newResult;
           }
+          if (this.isInstanceOf("RectSelectionService") || this.isInstanceOf("SelectionService")) {
+            console.log(`[SelectionService Debug] \u9009\u533A\u8303\u56F4\u66F4\u65B0: x=${this._sharedVar.x?.toFixed(1)}, y=${this._sharedVar.y?.toFixed(1)}, w=${this._sharedVar.width?.toFixed(1)}, h=${this._sharedVar.height?.toFixed(1)} | \u547D\u4E2D\u5143\u7D20\u6570\u91CF: ${this._result?.length || 0}`);
+          }
           if (this.isInstanceOf("SurfacePointSelectionService")) {
           }
         }
@@ -12012,8 +12015,6 @@ var init_builtin3 = __esm({
               y: event.clientY,
               startx: event.clientX,
               starty: event.clientY,
-              startOffsetX: event.offsetX,
-              startOffsetY: event.offsetY,
               currentx: event.clientX,
               currenty: event.clientY,
               offsetx: event.offsetX,
