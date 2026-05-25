@@ -4811,7 +4811,6 @@ var init_builtin = __esm({
             const value = datum2[field];
             const isMatch = matches(value, predicate);
             if (value !== void 0) {
-              console.log(`[LinkSelectionHubTransformer] Checking Edge - Field [${field}]: EdgeValue =`, value, `| Predicate =`, predicate, `| Match?`, isMatch);
             }
             if (!isMatch)
               return;
@@ -5499,7 +5498,6 @@ var init_selectionService = __esm({
         });
         this._currentDimension = [];
         if ((options?.renderSelection ?? options?.sharedVar?.renderSelection) !== false) {
-          console.log("[SelectionService] Attaching SelectionTransformer to", this._baseName, this);
           this._transformers.push(GraphicalTransformer2.initialize("SelectionTransformer", {
             transient: true,
             sharedVar: {
@@ -10217,12 +10215,17 @@ var init_instrument = __esm({
               });
             }
             if (isActive) {
-              let name = inst._name || inst._baseName;
+              let name = inst.getSharedVar("dslInstrumentName") || inst._name || inst._baseName;
+              const mod = inst.getSharedVar("modifierKey");
+              const synthetic = inst.getSharedVar("syntheticEvent");
               const desc = inst.getSharedVar("description");
               let html = `<span>${name}</span>`;
-              if (desc) {
+              if (mod)
+                html += ` <span style="color: #ce93d8;">[${mod}]</span>`;
+              if (synthetic)
+                html += ` <span style="color: #4db6ac;">[${synthetic}]</span>`;
+              if (desc)
                 html += ` <span style="color: #ffab91;">(${desc})</span>`;
-              }
               activeInsts.set(inst, html);
             }
             inst._layerInteractors.forEach((interactors, layr) => {
@@ -10270,12 +10273,15 @@ var init_instrument = __esm({
                   }
                 }
                 if (isHit) {
-                  let name = inst._name || inst._baseName;
+                  let name = inst.getSharedVar("dslInstrumentName") || inst._name || inst._baseName;
                   const mod = inst.getSharedVar("modifierKey");
+                  const synthetic = inst.getSharedVar("syntheticEvent");
                   const desc = inst.getSharedVar("description");
                   let html = `<span>${name}</span>`;
                   if (mod)
                     html += ` <span style="color: #ce93d8;">[${mod}]</span>`;
+                  if (synthetic)
+                    html += ` <span style="color: #4db6ac;">[${synthetic}]</span>`;
                   if (desc)
                     html += ` <span style="color: #ffab91;">(${desc})</span>`;
                   candidateInsts.set(inst, html);
@@ -10320,9 +10326,9 @@ var init_instrument = __esm({
           const activeStr = sortInstruments(activeInsts) || "<div style='margin-left: 8px;'>None</div>";
           const candidateStr = sortInstruments(candidateInsts) || "<div style='margin-left: 8px;'>None</div>";
           hud.innerHTML = `
-         <div style="margin-bottom: 4px; color: #81c784;"><strong>Active:</strong></div>
+         <div style="margin-bottom: 4px; color: #81c784;"><strong>Active Instruments:</strong></div>
          ${activeStr}
-         <div style="margin-top: 8px; margin-bottom: 4px; color: #64b5f6;"><strong>Candidates:</strong></div>
+         <div style="margin-top: 8px; margin-bottom: 4px; color: #64b5f6;"><strong>Candidate Instruments:</strong></div>
          ${candidateStr}
          <div style="margin-top: 8px; color: #9e9e9e; font-size: 11px;">Pos: (${e.clientX}, ${e.clientY})</div>
        `;
@@ -13092,6 +13098,14 @@ var Interaction = class {
       });
       instrument = Interaction.build(inheritOption);
       instanceInstruments.push(instrument);
+    }
+    if (options.sharedVar) {
+      Object.keys(options.sharedVar).forEach((key) => {
+        instrument.setSharedVar(key, options.sharedVar[key]);
+      });
+    }
+    if (options.sharedVar && options.sharedVar.dslInstrumentName) {
+      instrument.setSharedVar("dslInstrumentName", options.sharedVar.dslInstrumentName);
     }
     if (options.name) {
       registeredInteractions[options.name] = options;

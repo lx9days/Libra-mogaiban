@@ -540,12 +540,16 @@ export default class Instrument {
         }
 
         if (isActive) {
-           let name = inst._name || inst._baseName;
+            let name = inst.getSharedVar("dslInstrumentName") || inst._name || inst._baseName;
+            const mod = inst.getSharedVar("modifierKey");
+           const synthetic = inst.getSharedVar("syntheticEvent");
            const desc = inst.getSharedVar("description");
+           
            let html = `<span>${name}</span>`;
-           if (desc) {
-             html += ` <span style="color: #ffab91;">(${desc})</span>`;
-           }
+           if (mod) html += ` <span style="color: #ce93d8;">[${mod}]</span>`;
+           if (synthetic) html += ` <span style="color: #4db6ac;">[${synthetic}]</span>`;
+           if (desc) html += ` <span style="color: #ffab91;">(${desc})</span>`;
+           
            activeInsts.set(inst, html);
         }
 
@@ -631,12 +635,14 @@ export default class Instrument {
              }
 
              if (isHit) {
-               let name = inst._name || inst._baseName;
+               let name = inst.getSharedVar("dslInstrumentName") || inst._name || inst._baseName;
                const mod = inst.getSharedVar("modifierKey");
+               const synthetic = inst.getSharedVar("syntheticEvent");
                const desc = inst.getSharedVar("description");
                
                let html = `<span>${name}</span>`;
                if (mod) html += ` <span style="color: #ce93d8;">[${mod}]</span>`;
+               if (synthetic) html += ` <span style="color: #4db6ac;">[${synthetic}]</span>`;
                if (desc) html += ` <span style="color: #ffab91;">(${desc})</span>`;
                
                candidateInsts.set(inst, html);
@@ -690,9 +696,9 @@ export default class Instrument {
        const candidateStr = sortInstruments(candidateInsts) || "<div style='margin-left: 8px;'>None</div>";
        
        hud.innerHTML = `
-         <div style="margin-bottom: 4px; color: #81c784;"><strong>Active:</strong></div>
+         <div style="margin-bottom: 4px; color: #81c784;"><strong>Active Instruments:</strong></div>
          ${activeStr}
-         <div style="margin-top: 8px; margin-bottom: 4px; color: #64b5f6;"><strong>Candidates:</strong></div>
+         <div style="margin-top: 8px; margin-bottom: 4px; color: #64b5f6;"><strong>Candidate Instruments:</strong></div>
          ${candidateStr}
          <div style="margin-top: 8px; color: #9e9e9e; font-size: 11px;">Pos: (${e.clientX}, ${e.clientY})</div>
        `;

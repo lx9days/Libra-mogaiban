@@ -201,7 +201,7 @@ GraphicalTransformer.register("LinkSelectionHubTransformer", {
                 // We only log when the field exists in datum to avoid flooding the console too much,
                 // but log both success and failure to help debug.
                 if (value !== undefined) {
-                    console.log(`[LinkSelectionHubTransformer] Checking Edge - Field [${field}]: EdgeValue =`, value, `| Predicate =`, predicate, `| Match?`, isMatch);
+                    //  console.log(`[LinkSelectionHubTransformer] Checking Edge - Field [${field}]: EdgeValue =`, value, `| Predicate =`, predicate, `| Match?`, isMatch);
                 }
                 // --- Debug Log End ---
                 if (!isMatch)

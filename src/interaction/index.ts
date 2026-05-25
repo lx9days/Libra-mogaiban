@@ -118,6 +118,17 @@ export class Interaction {
       instanceInstruments.push(instrument);
     }
 
+    if (options.sharedVar) {
+      Object.keys(options.sharedVar).forEach((key) => {
+        instrument.setSharedVar(key, options.sharedVar[key]);
+      });
+    }
+
+    // Auto-inject dsl instrument name if available
+    if (options.sharedVar && options.sharedVar.dslInstrumentName) {
+      instrument.setSharedVar("dslInstrumentName", options.sharedVar.dslInstrumentName);
+    }
+
     if (options.name) {
       registeredInteractions[options.name] = options;
       if (!options.layers || !options.layers.length) return;
