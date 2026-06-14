@@ -324,11 +324,33 @@ export default class D3Layer extends Layer<SVGElement> {
       rect.y = y0;
       rect.width = absWidth;
       rect.height = absHeight;
+      const rectLeft = x0 + svgBCR.left;
+      const rectTop = y0 + svgBCR.top;
+      const rectRight = rectLeft + absWidth;
+      const rectBottom = rectTop + absHeight;
+      const rectHitPadding = 0.5;
 
       // Get intersecting elements using the built-in method
       result = [...this._svg.getIntersectionList(rect, this._graphic)]
         .filter(this._isElementInLayer.bind(this))
         .filter((elem) => !elem.classList.contains(backgroundClassName));
+
+      // Some browsers may drop boundary-touching SVG marks from getIntersectionList.
+      // Supplement with a screen-space bbox hit test to keep brush edges stable.
+      const stableRectHits = this.getVisualElements().filter((elem) => {
+        if (!this._isElementInLayer(elem)) return false;
+        if (elem.classList.contains(backgroundClassName)) return false;
+        if (!(elem instanceof SVGGraphicsElement)) return false;
+        if (elem.tagName.toLowerCase() === "g") return false;
+        const bbox = elem.getBoundingClientRect();
+        return !(
+          bbox.right < rectLeft - rectHitPadding ||
+          bbox.left > rectRight + rectHitPadding ||
+          bbox.bottom < rectTop - rectHitPadding ||
+          bbox.top > rectBottom + rectHitPadding
+        );
+      });
+      result = [...new Set([...result, ...stableRectHits])];
 
       // Custom check for paths with no fill and zero stroke-width
       const zeroStrokeWidthPaths = [
