@@ -4,6 +4,39 @@ import { GraphicalTransformer } from "../transformer";
 const DIM_MANAGED_ATTR = "data-libra-dim-managed";
 const DIM_ORIG_ATTR_OPACITY = "data-libra-dim-orig-attr-opacity";
 const DIM_ORIG_STYLE_OPACITY = "data-libra-dim-orig-style-opacity";
+const DSL_INSTRUMENT_ATTR = "data-libra-dsl-instrument";
+function normalizeDslInstrumentName(value) {
+    if (typeof value !== "string")
+        return null;
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+}
+function clearScopedSelectionLayer(selectionLayer, dslInstanceName) {
+    if (!selectionLayer)
+        return;
+    const scope = normalizeDslInstrumentName(dslInstanceName);
+    const childCount = selectionLayer.childElementCount ?? 0;
+    if (!scope) {
+        console.warn("[SelectionService Debug][FULL_CLEAR_TRIGGERED]", {
+            dslInstanceName,
+            childCount,
+        });
+        while (selectionLayer.firstChild) {
+            selectionLayer.removeChild(selectionLayer.lastChild);
+        }
+        return;
+    }
+    console.log("[SelectionService Debug] scoped clear", {
+        dslInstanceName: scope,
+        childCount,
+    });
+    Array.from(selectionLayer.children).forEach((child) => {
+        if (child instanceof Element &&
+            child.getAttribute(DSL_INSTRUMENT_ATTR) === scope) {
+            child.remove();
+        }
+    });
+}
 function clampOpacity(value, fallback) {
     const n = typeof value === "number" ? value : Number(value);
     if (!Number.isFinite(n))
@@ -83,7 +116,7 @@ function applyDimming(root, selector, dimOpacity, keep) {
     targets.forEach((el) => {
         if (!(el instanceof Element))
             return;
-        if (el.classList.contains("ig-layer-background"))
+        if (el.classList.contains("ig-layer-background") || el.classList.contains("ignore"))
             return;
         markDimOriginalOpacity(el);
         if (keep.has(el)) {
@@ -105,9 +138,10 @@ export default class SelectionService extends Service {
         });
         this._currentDimension = [];
         if ((options?.renderSelection ?? options?.sharedVar?.renderSelection) !== false) {
+            const scopedPersistentSelection = !!normalizeDslInstrumentName(options?.sharedVar?.dslInstanceName);
             // console.log("[SelectionService] Attaching SelectionTransformer to", this._baseName, this);
             this._transformers.push(GraphicalTransformer.initialize("SelectionTransformer", {
-                transient: true,
+                transient: !scopedPersistentSelection,
                 sharedVar: {
                     [this._resultAlias]: [],
                     layer: null,
@@ -187,6 +221,9 @@ export default class SelectionService extends Service {
                     y: y - bbox.top,
                     width: width,
                     height: height,
+                    ...(this._sharedVar.dslInstanceName
+                        ? { dslInstanceName: this._sharedVar.dslInstanceName }
+                        : {}),
                     ...(this._sharedVar.brushStyle
                         ? { brushStyle: this._sharedVar.brushStyle }
                         : {}),
@@ -269,9 +306,16 @@ export default class SelectionService extends Service {
         const selectionLayer = layer
             .getLayerFromQueue("selectionLayer")
             .getGraphic();
-        while (selectionLayer?.firstChild) {
-            selectionLayer.removeChild(selectionLayer.lastChild);
-        }
+        console.log("[SelectionService Debug] before clearScopedSelectionLayer", {
+            serviceName: this._name,
+            serviceBaseName: this._baseName,
+            layerName: layer?._name,
+            dslInstrumentName: this._sharedVar.dslInstrumentName,
+            dslInstanceName: this._sharedVar.dslInstanceName,
+            resultCount: Array.isArray(this._result) ? this._result.length : null,
+            selectionLayerChildren: selectionLayer?.childElementCount ?? 0,
+        });
+        clearScopedSelectionLayer(selectionLayer, this._sharedVar.dslInstanceName);
         if (this._sharedVar.deepClone) {
             let resultNodes = [];
             let refNodes = [];
@@ -319,6 +363,7 @@ export default class SelectionService extends Service {
                     x: this._sharedVar.offsetx ?? this._sharedVar.x,
                     y: this._sharedVar.offsety ?? this._sharedVar.y,
                     layer: layer.getLayerFromQueue("selectionLayer"),
+                    dslInstanceName: this._sharedVar.dslInstanceName,
                     [this._resultAlias]: this._result
                         ? this._result.map((node) => layer.cloneVisualElements(node, false))
                         : [],

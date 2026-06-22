@@ -4635,11 +4635,38 @@ var init_d3 = __esm({
 });
 
 // dist/esm/transformer/builtin.js
+function normalizeDslInstrumentName(value) {
+  if (typeof value !== "string")
+    return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+function clearScopedGraphic(graphic, dslInstanceName) {
+  if (!graphic)
+    return;
+  const scope = normalizeDslInstrumentName(dslInstanceName);
+  const selection2 = select_default2(graphic).selectAll(":not(.ig-layer-background)");
+  if (!scope) {
+    selection2.remove();
+    return;
+  }
+  selection2.filter(function() {
+    return this.getAttribute(DSL_INSTRUMENT_ATTR) === scope;
+  }).remove();
+}
+function markScopedElement(node, dslInstanceName) {
+  const scope = normalizeDslInstrumentName(dslInstanceName);
+  if (!node || !scope)
+    return;
+  node.setAttribute(DSL_INSTRUMENT_ATTR, scope);
+}
+var DSL_INSTRUMENT_ATTR;
 var init_builtin = __esm({
   "dist/esm/transformer/builtin.js"() {
     init_transformer();
     init_d3();
     init_helpers();
+    DSL_INSTRUMENT_ATTR = "data-libra-dsl-instrument";
     GraphicalTransformer.register("SliderTransformer", {
       constructor: GraphicalTransformer,
       redraw: ({ layer, transformer }) => {
@@ -4849,7 +4876,7 @@ var init_builtin = __esm({
       constructor: GraphicalTransformer,
       className: ["draw-shape", "transient-shape", "rectangle-shape"],
       redraw: ({ layer, transformer }) => {
-        const selection2 = select_default2(layer.getGraphic()).selectAll(":not(.ig-layer-background)").remove();
+        clearScopedGraphic(layer.getGraphic(), transformer.getSharedVar("dslInstanceName"));
         const brushStyle = transformer.getSharedVar("brushStyle") || {};
         const fill = brushStyle.fill ?? brushStyle.fillColor ?? transformer.getSharedVar("fillColor") ?? "#000000";
         const opacity = brushStyle.opacity ?? transformer.getSharedVar("opacity") ?? 0.3;
@@ -4859,6 +4886,7 @@ var init_builtin = __esm({
         const height = transformer.getSharedVar("height");
         if (width > 0 && height > 0) {
           const rect = select_default2(layer.getGraphic()).append("rect").attr("x", x).attr("y", y).attr("width", width).attr("height", height).attr("fill", fill).attr("opacity", opacity);
+          markScopedElement(rect.node(), transformer.getSharedVar("dslInstanceName"));
           Object.entries(brushStyle).forEach(([key, value]) => {
             if (value !== void 0 && value !== null) {
               rect.attr(key, value);
@@ -4870,6 +4898,7 @@ var init_builtin = __esm({
           selectionHistory.forEach((histItem) => {
             if (histItem.width > 0 && histItem.height > 0) {
               const histRect = select_default2(layer.getGraphic()).append("rect").attr("x", histItem.offsetx ?? histItem.x).attr("y", histItem.offsety ?? histItem.y).attr("width", histItem.width).attr("height", histItem.height).attr("fill", fill).attr("opacity", opacity);
+              markScopedElement(histRect.node(), transformer.getSharedVar("dslInstanceName"));
               Object.entries(brushStyle).forEach(([key, value]) => {
                 if (value !== void 0 && value !== null) {
                   histRect.attr(key, value);
@@ -4884,12 +4913,15 @@ var init_builtin = __esm({
       constructor: GraphicalTransformer,
       redraw: ({ layer, transformer }) => {
         transformer.getSharedVar("result")?.forEach((resultNode) => {
+          markScopedElement(resultNode, transformer.getSharedVar("dslInstanceName"));
           layer.getGraphic().appendChild(resultNode);
         });
         const highlightColor = transformer.getSharedVar("highlightColor");
         const attrValueEntries = Object.entries(transformer.getSharedVar("highlightAttrValues") || {});
         if (highlightColor || attrValueEntries.length) {
-          const elems = selectAll_default2(transformer.getSharedVar("result"));
+          const elems = selectAll_default2(transformer.getSharedVar("result")).filter(function() {
+            return this && this.classList ? !this.classList.contains("ignore") : true;
+          });
           if (highlightColor) {
             elems.attr("fill", highlightColor).attr("stroke", highlightColor);
           }
@@ -4995,6 +5027,20 @@ var init_builtin = __esm({
       },
       redraw({ layer, transformer }) {
         const mainLayer = layer.getLayerFromQueue("mainLayer");
+        let targetWidth = 0;
+        let targetHeight = 0;
+        if (mainLayer && mainLayer.getGraphic()) {
+          const rect = mainLayer.getGraphic().getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            targetWidth = rect.width;
+            targetHeight = rect.height;
+          }
+        }
+        if (targetWidth === 0 || targetHeight === 0) {
+          const rect = layer.getGraphic().getBoundingClientRect();
+          targetWidth = rect.width;
+          targetHeight = rect.height;
+        }
         const orientation = transformer.getSharedVar("orientation");
         const style = transformer.getSharedVar("style");
         const x = transformer.getSharedVar("offsetx") ? transformer.getSharedVar("offsetx") : transformer.getSharedVar("x");
@@ -5005,7 +5051,7 @@ var init_builtin = __esm({
         const result = transformer.getSharedVar("result");
         if (result && result.slope !== void 0 && result.intercept !== void 0) {
           orientation.splice(0, orientation.length);
-          const line = select_default2(layer.getGraphic()).append("line").attr("x1", 0).attr("x2", mainLayer.getGraphic().getBoundingClientRect().width).attr("y1", result.intercept).attr("y2", result.slope * mainLayer.getGraphic().getBoundingClientRect().width + result.intercept).attr("stroke-width", 1).attr("stroke", "#000");
+          const line = select_default2(layer.getGraphic()).append("line").attr("x1", 0).attr("x2", targetWidth).attr("y1", result.intercept).attr("y2", result.slope * targetWidth + result.intercept).attr("stroke-width", 1).attr("stroke", "#000");
           if (style) {
             Object.entries(style).forEach(([key, value]) => {
               line.attr(key, value);
@@ -5045,7 +5091,7 @@ var init_builtin = __esm({
         }
         const tooltip = tooltipQueue.join(" ");
         if (orientation.includes("horizontal") && typeof y === "number") {
-          const line = select_default2(layer.getGraphic()).append("line").attr("x1", 0).attr("x2", mainLayer.getGraphic().getBoundingClientRect().width).attr("y1", y - (layer._offset?.y ?? 0)).attr("y2", y - (layer._offset?.y ?? 0)).attr("stroke-width", 1).attr("stroke", "#000");
+          const line = select_default2(layer.getGraphic()).append("line").attr("x1", 0).attr("x2", targetWidth).attr("y1", y - (layer._offset?.y ?? 0)).attr("y2", y - (layer._offset?.y ?? 0)).attr("stroke-width", 1).attr("stroke", "#000");
           if (style) {
             Object.entries(style).forEach(([key, value]) => {
               line.attr(key, value);
@@ -5053,7 +5099,7 @@ var init_builtin = __esm({
           }
         }
         if (orientation.includes("vertical") && typeof x === "number") {
-          const line = select_default2(layer.getGraphic()).append("line").attr("y1", 0).attr("y2", mainLayer.getGraphic().getBoundingClientRect().height).attr("x1", x - (layer._offset?.x ?? 0)).attr("x2", x - (layer._offset?.x ?? 0)).attr("stroke-width", 1).attr("stroke", "#000");
+          const line = select_default2(layer.getGraphic()).append("line").attr("y1", 0).attr("y2", targetHeight).attr("x1", x - (layer._offset?.x ?? 0)).attr("x2", x - (layer._offset?.x ?? 0)).attr("stroke-width", 1).attr("stroke", "#000");
           if (style) {
             Object.entries(style).forEach(([key, value]) => {
               line.attr(key, value);
@@ -5388,6 +5434,37 @@ var init_service = __esm({
 });
 
 // dist/esm/service/selectionService.js
+function normalizeDslInstrumentName2(value) {
+  if (typeof value !== "string")
+    return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+function clearScopedSelectionLayer(selectionLayer, dslInstanceName) {
+  if (!selectionLayer)
+    return;
+  const scope = normalizeDslInstrumentName2(dslInstanceName);
+  const childCount = selectionLayer.childElementCount ?? 0;
+  if (!scope) {
+    console.warn("[SelectionService Debug][FULL_CLEAR_TRIGGERED]", {
+      dslInstanceName,
+      childCount
+    });
+    while (selectionLayer.firstChild) {
+      selectionLayer.removeChild(selectionLayer.lastChild);
+    }
+    return;
+  }
+  console.log("[SelectionService Debug] scoped clear", {
+    dslInstanceName: scope,
+    childCount
+  });
+  Array.from(selectionLayer.children).forEach((child) => {
+    if (child instanceof Element && child.getAttribute(DSL_INSTRUMENT_ATTR2) === scope) {
+      child.remove();
+    }
+  });
+}
 function clampOpacity(value, fallback) {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n))
@@ -5467,7 +5544,7 @@ function applyDimming(root2, selector, dimOpacity, keep) {
   targets.forEach((el) => {
     if (!(el instanceof Element))
       return;
-    if (el.classList.contains("ig-layer-background"))
+    if (el.classList.contains("ig-layer-background") || el.classList.contains("ignore"))
       return;
     markDimOriginalOpacity(el);
     if (keep.has(el)) {
@@ -5481,7 +5558,7 @@ function applyDimming(root2, selector, dimOpacity, keep) {
       el.setAttribute("opacity", String(dimOpacity));
   });
 }
-var DIM_MANAGED_ATTR, DIM_ORIG_ATTR_OPACITY, DIM_ORIG_STYLE_OPACITY, SelectionService;
+var DIM_MANAGED_ATTR, DIM_ORIG_ATTR_OPACITY, DIM_ORIG_STYLE_OPACITY, DSL_INSTRUMENT_ATTR2, SelectionService;
 var init_selectionService = __esm({
   "dist/esm/service/selectionService.js"() {
     init_service();
@@ -5490,6 +5567,7 @@ var init_selectionService = __esm({
     DIM_MANAGED_ATTR = "data-libra-dim-managed";
     DIM_ORIG_ATTR_OPACITY = "data-libra-dim-orig-attr-opacity";
     DIM_ORIG_STYLE_OPACITY = "data-libra-dim-orig-style-opacity";
+    DSL_INSTRUMENT_ATTR2 = "data-libra-dsl-instrument";
     SelectionService = class extends Service {
       constructor(baseName4, options) {
         super(baseName4, {
@@ -5498,8 +5576,9 @@ var init_selectionService = __esm({
         });
         this._currentDimension = [];
         if ((options?.renderSelection ?? options?.sharedVar?.renderSelection) !== false) {
+          const scopedPersistentSelection = !!normalizeDslInstrumentName2(options?.sharedVar?.dslInstanceName);
           this._transformers.push(GraphicalTransformer2.initialize("SelectionTransformer", {
-            transient: true,
+            transient: !scopedPersistentSelection,
             sharedVar: {
               [this._resultAlias]: [],
               layer: null,
@@ -5560,6 +5639,7 @@ var init_selectionService = __esm({
               y: y - bbox.top,
               width,
               height,
+              ...this._sharedVar.dslInstanceName ? { dslInstanceName: this._sharedVar.dslInstanceName } : {},
               ...this._sharedVar.brushStyle ? { brushStyle: this._sharedVar.brushStyle } : {}
             });
           }
@@ -5622,9 +5702,16 @@ var init_selectionService = __esm({
           restoreAllDimmed(layer.getGraphic());
         }
         const selectionLayer = layer.getLayerFromQueue("selectionLayer").getGraphic();
-        while (selectionLayer?.firstChild) {
-          selectionLayer.removeChild(selectionLayer.lastChild);
-        }
+        console.log("[SelectionService Debug] before clearScopedSelectionLayer", {
+          serviceName: this._name,
+          serviceBaseName: this._baseName,
+          layerName: layer?._name,
+          dslInstrumentName: this._sharedVar.dslInstrumentName,
+          dslInstanceName: this._sharedVar.dslInstanceName,
+          resultCount: Array.isArray(this._result) ? this._result.length : null,
+          selectionLayerChildren: selectionLayer?.childElementCount ?? 0
+        });
+        clearScopedSelectionLayer(selectionLayer, this._sharedVar.dslInstanceName);
         if (this._sharedVar.deepClone) {
           let resultNodes = [];
           let refNodes = [];
@@ -5667,6 +5754,7 @@ var init_selectionService = __esm({
               x: this._sharedVar.offsetx ?? this._sharedVar.x,
               y: this._sharedVar.offsety ?? this._sharedVar.y,
               layer: layer.getLayerFromQueue("selectionLayer"),
+              dslInstanceName: this._sharedVar.dslInstanceName,
               [this._resultAlias]: this._result ? this._result.map((node) => layer.cloneVisualElements(node, false)) : []
             });
           });
@@ -7113,7 +7201,25 @@ var init_d3Layer = __esm({
           rect.y = y0;
           rect.width = absWidth;
           rect.height = absHeight;
+          const rectLeft = x0 + svgBCR.left;
+          const rectTop = y0 + svgBCR.top;
+          const rectRight = rectLeft + absWidth;
+          const rectBottom = rectTop + absHeight;
+          const rectHitPadding = 0.5;
           result = [...this._svg.getIntersectionList(rect, this._graphic)].filter(this._isElementInLayer.bind(this)).filter((elem) => !elem.classList.contains(backgroundClassName));
+          const stableRectHits = this.getVisualElements().filter((elem) => {
+            if (!this._isElementInLayer(elem))
+              return false;
+            if (elem.classList.contains(backgroundClassName))
+              return false;
+            if (!(elem instanceof SVGGraphicsElement))
+              return false;
+            if (elem.tagName.toLowerCase() === "g")
+              return false;
+            const bbox = elem.getBoundingClientRect();
+            return !(bbox.right < rectLeft - rectHitPadding || bbox.left > rectRight + rectHitPadding || bbox.bottom < rectTop - rectHitPadding || bbox.top > rectBottom + rectHitPadding);
+          });
+          result = [...new Set([...result, ...stableRectHits])];
           const zeroStrokeWidthPaths = [
             ...this._graphic.querySelectorAll("path")
           ].filter((path) => {
@@ -10527,6 +10633,26 @@ var init_instrument = __esm({
 });
 
 // dist/esm/instrument/builtin.js
+function normalizeDslInstrumentName3(value) {
+  if (typeof value !== "string")
+    return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+function clearScopedLayerGraphic(graphic, dslInstanceName) {
+  if (!graphic)
+    return;
+  const scope = normalizeDslInstrumentName3(dslInstanceName);
+  const selection2 = select_default2(graphic).selectAll(":not(.ig-layer-background)");
+  if (!scope) {
+    selection2.remove();
+    return;
+  }
+  selection2.filter(function() {
+    return this.getAttribute(DSL_INSTRUMENT_ATTR3) === scope;
+  }).remove();
+}
+var DSL_INSTRUMENT_ATTR3;
 var init_builtin3 = __esm({
   "dist/esm/instrument/builtin.js"() {
     init_instrument();
@@ -10534,6 +10660,7 @@ var init_builtin3 = __esm({
     init_helpers();
     init_d3();
     init_command();
+    DSL_INSTRUMENT_ATTR3 = "data-libra-dsl-instrument";
     Instrument.register("HoverInstrument", {
       constructor: Instrument,
       interactors: ["MousePositionInteractor", "TouchPositionInteractor"],
@@ -10932,6 +11059,14 @@ var init_builtin3 = __esm({
       preAttach: (instrument, layer) => {
         const selectionLayer = layer.getLayerFromQueue("selectionLayer");
         const linkLayers = instrument.getSharedVar("linkLayers");
+        const dslInstanceName = instrument.getSharedVar("dslInstanceName");
+        console.log("[BrushInstrument Debug] preAttach", {
+          instrumentName: instrument._name,
+          instrumentBaseName: instrument._baseName,
+          layerName: layer?._name,
+          dslInstrumentName: instrument.getSharedVar("dslInstrumentName"),
+          dslInstanceName
+        });
         const hasDim = Object.prototype.hasOwnProperty.call(instrument._sharedVar, "dim");
         if (Array.isArray(linkLayers) && linkLayers.length > 0) {
           const allLayers = [layer, ...linkLayers].filter((l, i, arr) => !!l && arr.indexOf(l) === i);
@@ -10950,9 +11085,14 @@ var init_builtin3 = __esm({
         }
         if (layer.onUpdate) {
           layer.onUpdate(() => {
+            console.log("[BrushInstrument Debug] layer.onUpdate -> _evaluate", {
+              instrumentName: instrument._name,
+              instrumentBaseName: instrument._baseName,
+              layerName: layer?._name,
+              dslInstanceName
+            });
             const graphic = selectionLayer.getGraphic();
-            if (graphic)
-              graphic.innerHTML = "";
+            clearScopedLayerGraphic(graphic, dslInstanceName);
             const selectionService = instrument.services.find("RectSelectionService");
             if (selectionService) {
               selectionService._evaluate(layer);
@@ -10965,8 +11105,9 @@ var init_builtin3 = __esm({
             deepClone: instrument.getSharedVar("deepClone"),
             ...Array.isArray(linkLayers) && linkLayers.length > 0 ? {
               linkSelection: true,
-              linkSelectionSource: String(layer._name ?? instrument._name)
+              linkSelectionSource: String(dslInstanceName ?? layer._name ?? instrument._name)
             } : {},
+            ...dslInstanceName ? { dslInstanceName } : {},
             ...instrument.getSharedVar("highlightColor") ? { highlightColor: instrument.getSharedVar("highlightColor") } : {},
             ...instrument.getSharedVar("highlightAttrValues") ? {
               highlightAttrValues: instrument.getSharedVar("highlightAttrValues")

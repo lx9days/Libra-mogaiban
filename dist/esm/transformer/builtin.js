@@ -1,6 +1,36 @@
 import GraphicalTransformer from "./transformer";
 import * as d3 from "d3";
 import * as helpers from "../helpers";
+const DSL_INSTRUMENT_ATTR = "data-libra-dsl-instrument";
+function normalizeDslInstrumentName(value) {
+    if (typeof value !== "string")
+        return null;
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+}
+function clearScopedGraphic(graphic, dslInstanceName) {
+    if (!graphic)
+        return;
+    const scope = normalizeDslInstrumentName(dslInstanceName);
+    const selection = d3
+        .select(graphic)
+        .selectAll(":not(.ig-layer-background)");
+    if (!scope) {
+        selection.remove();
+        return;
+    }
+    selection
+        .filter(function () {
+        return (this.getAttribute(DSL_INSTRUMENT_ATTR) === scope);
+    })
+        .remove();
+}
+function markScopedElement(node, dslInstanceName) {
+    const scope = normalizeDslInstrumentName(dslInstanceName);
+    if (!node || !scope)
+        return;
+    node.setAttribute(DSL_INSTRUMENT_ATTR, scope);
+}
 GraphicalTransformer.register("SliderTransformer", {
     constructor: GraphicalTransformer,
     redraw: ({ layer, transformer }) => {
@@ -243,10 +273,7 @@ GraphicalTransformer.register("TransientRectangleTransformer", {
     constructor: GraphicalTransformer,
     className: ["draw-shape", "transient-shape", "rectangle-shape"],
     redraw: ({ layer, transformer }) => {
-        const selection = d3
-            .select(layer.getGraphic())
-            .selectAll(":not(.ig-layer-background)")
-            .remove();
+        clearScopedGraphic(layer.getGraphic(), transformer.getSharedVar("dslInstanceName"));
         const brushStyle = transformer.getSharedVar("brushStyle") || {};
         const fill = brushStyle.fill ??
             brushStyle.fillColor ??
@@ -268,6 +295,7 @@ GraphicalTransformer.register("TransientRectangleTransformer", {
                 .attr("height", height)
                 .attr("fill", fill)
                 .attr("opacity", opacity);
+            markScopedElement(rect.node(), transformer.getSharedVar("dslInstanceName"));
             Object.entries(brushStyle).forEach(([key, value]) => {
                 if (value !== undefined && value !== null) {
                     rect.attr(key, value);
@@ -288,6 +316,7 @@ GraphicalTransformer.register("TransientRectangleTransformer", {
                         .attr("height", histItem.height)
                         .attr("fill", fill) // Use same style for consistency, or customize if needed
                         .attr("opacity", opacity);
+                    markScopedElement(histRect.node(), transformer.getSharedVar("dslInstanceName"));
                     Object.entries(brushStyle).forEach(([key, value]) => {
                         if (value !== undefined && value !== null) {
                             histRect.attr(key, value);
@@ -302,12 +331,15 @@ GraphicalTransformer.register("SelectionTransformer", {
     constructor: GraphicalTransformer,
     redraw: ({ layer, transformer }) => {
         transformer.getSharedVar("result")?.forEach((resultNode) => {
+            markScopedElement(resultNode, transformer.getSharedVar("dslInstanceName"));
             layer.getGraphic().appendChild(resultNode);
         });
         const highlightColor = transformer.getSharedVar("highlightColor");
         const attrValueEntries = Object.entries(transformer.getSharedVar("highlightAttrValues") || {});
         if (highlightColor || attrValueEntries.length) {
-            const elems = d3.selectAll(transformer.getSharedVar("result"));
+            const elems = d3.selectAll(transformer.getSharedVar("result")).filter(function () {
+                return this && this.classList ? !this.classList.contains("ignore") : true;
+            });
             if (highlightColor) {
                 elems.attr("fill", highlightColor).attr("stroke", highlightColor);
             }
@@ -454,7 +486,24 @@ GraphicalTransformer.register("LineTransformer", {
         style: {},
     },
     redraw({ layer, transformer }) {
+        // If "mainLayer" doesn't exist in the queue, it will be automatically created
+        // However, if it's created implicitly here, its size might be 0, or it might not be attached to the DOM correctly yet
         const mainLayer = layer.getLayerFromQueue("mainLayer");
+        // So we need to compute width/height safely. We prefer the current layer's bounding client rect if the implicitly created mainLayer has a 0 width.
+        let targetWidth = 0;
+        let targetHeight = 0;
+        if (mainLayer && mainLayer.getGraphic()) {
+            const rect = mainLayer.getGraphic().getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+                targetWidth = rect.width;
+                targetHeight = rect.height;
+            }
+        }
+        if (targetWidth === 0 || targetHeight === 0) {
+            const rect = layer.getGraphic().getBoundingClientRect();
+            targetWidth = rect.width;
+            targetHeight = rect.height;
+        }
         const orientation = transformer.getSharedVar("orientation");
         const style = transformer.getSharedVar("style");
         const x = transformer.getSharedVar("offsetx") ? transformer.getSharedVar("offsetx") : transformer.getSharedVar("x");
@@ -472,9 +521,9 @@ GraphicalTransformer.register("LineTransformer", {
                 .select(layer.getGraphic())
                 .append("line")
                 .attr("x1", 0)
-                .attr("x2", mainLayer.getGraphic().getBoundingClientRect().width)
+                .attr("x2", targetWidth)
                 .attr("y1", result.intercept)
-                .attr("y2", result.slope * mainLayer.getGraphic().getBoundingClientRect().width +
+                .attr("y2", result.slope * targetWidth +
                 result.intercept)
                 .attr("stroke-width", 1)
                 .attr("stroke", "#000");
@@ -523,7 +572,7 @@ GraphicalTransformer.register("LineTransformer", {
                 .select(layer.getGraphic())
                 .append("line")
                 .attr("x1", 0)
-                .attr("x2", mainLayer.getGraphic().getBoundingClientRect().width)
+                .attr("x2", targetWidth)
                 .attr("y1", y - (layer._offset?.y ?? 0))
                 .attr("y2", y - (layer._offset?.y ?? 0))
                 .attr("stroke-width", 1)
@@ -539,7 +588,7 @@ GraphicalTransformer.register("LineTransformer", {
                 .select(layer.getGraphic())
                 .append("line")
                 .attr("y1", 0)
-                .attr("y2", mainLayer.getGraphic().getBoundingClientRect().height)
+                .attr("y2", targetHeight)
                 .attr("x1", x - (layer._offset?.x ?? 0))
                 .attr("x2", x - (layer._offset?.x ?? 0))
                 .attr("stroke-width", 1)

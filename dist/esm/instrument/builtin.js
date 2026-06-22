@@ -3,6 +3,30 @@ import GraphicalTransformer from "../transformer";
 import { getTransform, checkModifier, setLinkSelectionPredicate, } from "../helpers";
 import * as d3 from "d3";
 import Command from "../command/command";
+const DSL_INSTRUMENT_ATTR = "data-libra-dsl-instrument";
+function normalizeDslInstrumentName(value) {
+    if (typeof value !== "string")
+        return null;
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+}
+function clearScopedLayerGraphic(graphic, dslInstanceName) {
+    if (!graphic)
+        return;
+    const scope = normalizeDslInstrumentName(dslInstanceName);
+    const selection = d3
+        .select(graphic)
+        .selectAll(":not(.ig-layer-background)");
+    if (!scope) {
+        selection.remove();
+        return;
+    }
+    selection
+        .filter(function () {
+        return (this.getAttribute(DSL_INSTRUMENT_ATTR) === scope);
+    })
+        .remove();
+}
 Instrument.register("HoverInstrument", {
     constructor: Instrument,
     interactors: ["MousePositionInteractor", "TouchPositionInteractor"],
@@ -449,6 +473,14 @@ Instrument.register("BrushInstrument", {
         // create selectionLayer first
         const selectionLayer = layer.getLayerFromQueue("selectionLayer");
         const linkLayers = instrument.getSharedVar("linkLayers");
+        const dslInstanceName = instrument.getSharedVar("dslInstanceName");
+        console.log("[BrushInstrument Debug] preAttach", {
+            instrumentName: instrument._name,
+            instrumentBaseName: instrument._baseName,
+            layerName: layer?._name,
+            dslInstrumentName: instrument.getSharedVar("dslInstrumentName"),
+            dslInstanceName,
+        });
         const hasDim = Object.prototype.hasOwnProperty.call(instrument._sharedVar, "dim");
         if (Array.isArray(linkLayers) && linkLayers.length > 0) {
             const allLayers = [layer, ...linkLayers].filter((l, i, arr) => !!l && arr.indexOf(l) === i);
@@ -468,12 +500,14 @@ Instrument.register("BrushInstrument", {
         // Sync selection layer with parent layer updates
         if (layer.onUpdate) {
             layer.onUpdate(() => {
-                // console.log(
-                //   "[BrushInstrument] Parent layer updated. Re-evaluating selection..."
-                // );
+                console.log("[BrushInstrument Debug] layer.onUpdate -> _evaluate", {
+                    instrumentName: instrument._name,
+                    instrumentBaseName: instrument._baseName,
+                    layerName: layer?._name,
+                    dslInstanceName,
+                });
                 const graphic = selectionLayer.getGraphic();
-                if (graphic)
-                    graphic.innerHTML = "";
+                clearScopedLayerGraphic(graphic, dslInstanceName);
                 const selectionService = instrument.services.find("RectSelectionService");
                 if (selectionService) {
                     selectionService._evaluate(layer);
@@ -487,8 +521,11 @@ Instrument.register("BrushInstrument", {
                 ...(Array.isArray(linkLayers) && linkLayers.length > 0
                     ? {
                         linkSelection: true,
-                        linkSelectionSource: String(layer._name ?? instrument._name),
+                        linkSelectionSource: String(dslInstanceName ?? layer._name ?? instrument._name),
                     }
+                    : {}),
+                ...(dslInstanceName
+                    ? { dslInstanceName: dslInstanceName }
                     : {}),
                 ...(instrument.getSharedVar("highlightColor")
                     ? { highlightColor: instrument.getSharedVar("highlightColor") }
