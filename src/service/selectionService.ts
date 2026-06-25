@@ -22,19 +22,19 @@ function clearScopedSelectionLayer(
   const scope = normalizeDslInstrumentName(dslInstanceName);
   const childCount = selectionLayer.childElementCount ?? 0;
   if (!scope) {
-    console.warn("[SelectionService Debug][FULL_CLEAR_TRIGGERED]", {
-      dslInstanceName,
-      childCount,
-    });
+    // console.warn("[SelectionService Debug][FULL_CLEAR_TRIGGERED]", {
+    //   dslInstanceName,
+    //   childCount,
+    // });
     while (selectionLayer.firstChild) {
       selectionLayer.removeChild(selectionLayer.lastChild);
     }
     return;
   }
-  console.log("[SelectionService Debug] scoped clear", {
-    dslInstanceName: scope,
-    childCount,
-  });
+  // console.log("[SelectionService Debug] scoped clear", {
+  //   dslInstanceName: scope,
+  //   childCount,
+  // });
   Array.from(selectionLayer.children).forEach((child) => {
     if (
       child instanceof Element &&
@@ -295,9 +295,9 @@ export default class SelectionService extends Service {
       }
 
       if (this.isInstanceOf("RectSelectionService") || this.isInstanceOf("SelectionService")) {
-        console.log(
-          `[SelectionService Debug] 选区范围更新: x=${this._sharedVar.x?.toFixed(1)}, y=${this._sharedVar.y?.toFixed(1)}, w=${this._sharedVar.width?.toFixed(1)}, h=${this._sharedVar.height?.toFixed(1)} | 命中元素数量: ${this._result?.length || 0}`
-        );
+        // console.log(
+        //   `[SelectionService Debug] 选区范围更新: x=${this._sharedVar.x?.toFixed(1)}, y=${this._sharedVar.y?.toFixed(1)}, w=${this._sharedVar.width?.toFixed(1)}, h=${this._sharedVar.height?.toFixed(1)} | 命中元素数量: ${this._result?.length || 0}`
+        // );
       }
 
       if (this.isInstanceOf("SurfacePointSelectionService")) {
@@ -336,15 +336,15 @@ export default class SelectionService extends Service {
     const selectionLayer = layer
       .getLayerFromQueue("selectionLayer")
       .getGraphic();
-    console.log("[SelectionService Debug] before clearScopedSelectionLayer", {
-      serviceName: this._name,
-      serviceBaseName: this._baseName,
-      layerName: (layer as any)?._name,
-      dslInstrumentName: this._sharedVar.dslInstrumentName,
-      dslInstanceName: this._sharedVar.dslInstanceName,
-      resultCount: Array.isArray(this._result) ? this._result.length : null,
-      selectionLayerChildren: selectionLayer?.childElementCount ?? 0,
-    });
+    // console.log("[SelectionService Debug] before clearScopedSelectionLayer", {
+    //   serviceName: this._name,
+    //   serviceBaseName: this._baseName,
+    //   layerName: (layer as any)?._name,
+    //   dslInstrumentName: this._sharedVar.dslInstrumentName,
+    //   dslInstanceName: this._sharedVar.dslInstanceName,
+    //   resultCount: Array.isArray(this._result) ? this._result.length : null,
+    //   selectionLayerChildren: selectionLayer?.childElementCount ?? 0,
+    // });
     clearScopedSelectionLayer(
       selectionLayer,
       this._sharedVar.dslInstanceName

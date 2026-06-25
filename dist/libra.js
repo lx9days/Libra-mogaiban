@@ -4784,13 +4784,9 @@ var init_builtin = __esm({
           return;
         const elements = typeof layer.getVisualElements === "function" ? layer.getVisualElements() : select_default2(layer.getGraphic()).selectAll("*").nodes();
         const matched = [];
-        console.log("[LinkSelectionHubTransformer] Target LinkLayer Elements count:", elements.length);
-        console.log("[LinkSelectionHubTransformer] Active Predicate (validEntries):", validEntries);
         const firstValidDatum = elements.map((el) => layer.getDatum?.(el)).find((d) => !!d);
         if (firstValidDatum) {
-          console.log("[LinkSelectionHubTransformer] Sample Edge Datum (Metadata):", firstValidDatum);
         } else {
-          console.warn("[LinkSelectionHubTransformer] Warning: No datum found on any edge elements!");
         }
         elements.forEach((el) => {
           const datum2 = layer.getDatum?.(el);
@@ -4844,7 +4840,6 @@ var init_builtin = __esm({
           }
           matched.push(el);
         });
-        console.log("[LinkSelectionHubTransformer] Final matched edges count:", matched.length);
         const resultNodes = matched.map((node) => layer.cloneVisualElements?.(node, false));
         let selectionTransformer = transformer.getSharedVar("_selectionTransformer");
         if (!selectionTransformer) {
@@ -5446,19 +5441,11 @@ function clearScopedSelectionLayer(selectionLayer, dslInstanceName) {
   const scope = normalizeDslInstrumentName2(dslInstanceName);
   const childCount = selectionLayer.childElementCount ?? 0;
   if (!scope) {
-    console.warn("[SelectionService Debug][FULL_CLEAR_TRIGGERED]", {
-      dslInstanceName,
-      childCount
-    });
     while (selectionLayer.firstChild) {
       selectionLayer.removeChild(selectionLayer.lastChild);
     }
     return;
   }
-  console.log("[SelectionService Debug] scoped clear", {
-    dslInstanceName: scope,
-    childCount
-  });
   Array.from(selectionLayer.children).forEach((child) => {
     if (child instanceof Element && child.getAttribute(DSL_INSTRUMENT_ATTR2) === scope) {
       child.remove();
@@ -5678,7 +5665,6 @@ var init_selectionService = __esm({
             this._result = newResult;
           }
           if (this.isInstanceOf("RectSelectionService") || this.isInstanceOf("SelectionService")) {
-            console.log(`[SelectionService Debug] \u9009\u533A\u8303\u56F4\u66F4\u65B0: x=${this._sharedVar.x?.toFixed(1)}, y=${this._sharedVar.y?.toFixed(1)}, w=${this._sharedVar.width?.toFixed(1)}, h=${this._sharedVar.height?.toFixed(1)} | \u547D\u4E2D\u5143\u7D20\u6570\u91CF: ${this._result?.length || 0}`);
           }
           if (this.isInstanceOf("SurfacePointSelectionService")) {
           }
@@ -5702,15 +5688,6 @@ var init_selectionService = __esm({
           restoreAllDimmed(layer.getGraphic());
         }
         const selectionLayer = layer.getLayerFromQueue("selectionLayer").getGraphic();
-        console.log("[SelectionService Debug] before clearScopedSelectionLayer", {
-          serviceName: this._name,
-          serviceBaseName: this._baseName,
-          layerName: layer?._name,
-          dslInstrumentName: this._sharedVar.dslInstrumentName,
-          dslInstanceName: this._sharedVar.dslInstanceName,
-          resultCount: Array.isArray(this._result) ? this._result.length : null,
-          selectionLayerChildren: selectionLayer?.childElementCount ?? 0
-        });
         clearScopedSelectionLayer(selectionLayer, this._sharedVar.dslInstanceName);
         if (this._sharedVar.deepClone) {
           let resultNodes = [];

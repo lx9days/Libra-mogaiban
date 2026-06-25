@@ -184,15 +184,15 @@ GraphicalTransformer.register("LinkSelectionHubTransformer", {
         : d3.select(layer.getGraphic()).selectAll("*").nodes();
 
     const matched: Element[] = [];
-    console.log("[LinkSelectionHubTransformer] Target LinkLayer Elements count:", elements.length);
-    console.log("[LinkSelectionHubTransformer] Active Predicate (validEntries):", validEntries);
+    // console.log("[LinkSelectionHubTransformer] Target LinkLayer Elements count:", elements.length);
+    // console.log("[LinkSelectionHubTransformer] Active Predicate (validEntries):", validEntries);
     
     // --- Debug: Dump the first valid edge datum to inspect its structure ---
     const firstValidDatum = elements.map(el => (layer as any).getDatum?.(el)).find(d => !!d);
     if (firstValidDatum) {
-      console.log("[LinkSelectionHubTransformer] Sample Edge Datum (Metadata):", firstValidDatum);
+      // console.log("[LinkSelectionHubTransformer] Sample Edge Datum (Metadata):", firstValidDatum);
     } else {
-      console.warn("[LinkSelectionHubTransformer] Warning: No datum found on any edge elements!");
+      // console.warn("[LinkSelectionHubTransformer] Warning: No datum found on any edge elements!");
     }
     // --- End Debug ---
 
@@ -255,7 +255,7 @@ GraphicalTransformer.register("LinkSelectionHubTransformer", {
       matched.push(el);
     });
 
-    console.log("[LinkSelectionHubTransformer] Final matched edges count:", matched.length);
+    // console.log("[LinkSelectionHubTransformer] Final matched edges count:", matched.length);
 
     const resultNodes = matched.map((node) =>
       (layer as any).cloneVisualElements?.(node, false)
