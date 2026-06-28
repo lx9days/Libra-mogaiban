@@ -375,6 +375,101 @@ export default class Instrument {
         if (event === "mousemove" && e instanceof MouseEvent) {
             const activeInsts = new Map();
             const candidateInsts = new Map();
+            const conflictingTriggers = new Set([
+                "click",
+                "brush",
+                "drag",
+                "pan",
+                "brushx",
+                "brushy",
+            ]);
+            const hardConflictLayersByInst = new Map();
+            const softConflictLayersByInst = new Map();
+            const getInstrumentLayers = (inst) => {
+                const layers = new Set();
+                inst._layerInteractors.forEach((_, layr) => layers.add(layr));
+                inst._layers.forEach((layerEntry) => {
+                    layers.add(layerEntry instanceof Layer ? layerEntry : layerEntry.layer);
+                });
+                return Array.from(layers);
+            };
+            const getLayerDisplayName = (layr) => {
+                return layr?._name || layr?._baseName || "unknown-layer";
+            };
+            const hasConflictControl = (inst) => {
+                const sharedVar = inst._sharedVar || {};
+                const userOptions = inst._userOptions || {};
+                return (Object.prototype.hasOwnProperty.call(sharedVar, "modifierKey") ||
+                    Object.prototype.hasOwnProperty.call(sharedVar, "syntheticEvent") ||
+                    Object.prototype.hasOwnProperty.call(userOptions, "priority"));
+            };
+            const addConflictLayer = (map, inst, layerName) => {
+                if (!map.has(inst)) {
+                    map.set(inst, new Set());
+                }
+                map.get(inst)?.add(layerName);
+            };
+            const conflictInstsByLayer = new Map();
+            instanceInstruments.forEach((inst) => {
+                const trigger = inst.getSharedVar("trigger");
+                if (typeof trigger !== "string" || !conflictingTriggers.has(trigger)) {
+                    return;
+                }
+                getInstrumentLayers(inst).forEach((layr) => {
+                    if (!conflictInstsByLayer.has(layr)) {
+                        conflictInstsByLayer.set(layr, []);
+                    }
+                    conflictInstsByLayer.get(layr)?.push(inst);
+                });
+            });
+            conflictInstsByLayer.forEach((insts, layr) => {
+                if (insts.length < 2)
+                    return;
+                const hasUncontrolledInst = insts.some((inst) => !hasConflictControl(inst));
+                if (!hasUncontrolledInst)
+                    return;
+                const layerName = getLayerDisplayName(layr);
+                insts.forEach((inst) => {
+                    if (hasConflictControl(inst)) {
+                        addConflictLayer(softConflictLayersByInst, inst, layerName);
+                    }
+                    else {
+                        addConflictLayer(hardConflictLayersByInst, inst, layerName);
+                    }
+                });
+            });
+            const buildHudInstrumentHtml = (inst) => {
+                const name = inst.getSharedVar("dslInstrumentName") || inst._name || inst._baseName;
+                const mod = inst.getSharedVar("modifierKey");
+                const trigger = inst.getSharedVar("trigger");
+                const synthetic = inst.getSharedVar("syntheticEvent");
+                const desc = inst.getSharedVar("description");
+                const hardConflictLayers = Array.from(hardConflictLayersByInst.get(inst) || []);
+                const softConflictLayers = Array.from(softConflictLayersByInst.get(inst) || []);
+                const hasHardConflict = hardConflictLayers.length > 0;
+                const hasSoftConflict = softConflictLayers.length > 0;
+                const labelColor = hasHardConflict
+                    ? "#ef5350"
+                    : hasSoftConflict
+                        ? "#fb8c00"
+                        : "";
+                let html = `<span${labelColor ? ` style="color: ${labelColor};"` : ""}>${name}</span>`;
+                if (trigger)
+                    html += ` <span style="color: #ffd54f;">{${trigger}}</span>`;
+                if (hasHardConflict) {
+                    html += ` <span style="color: #ef5350;">conflict detected on \`${hardConflictLayers.join(", ")}\`</span>`;
+                }
+                if (hasSoftConflict) {
+                    html += ` <span style="color: #fb8c00;">potential conflict on \`${softConflictLayers.join(", ")}\`</span>`;
+                }
+                if (mod)
+                    html += ` <span style="color: #ce93d8;">[${mod}]</span>`;
+                if (synthetic)
+                    html += ` <span style="color: #4db6ac;">[${synthetic}]</span>`;
+                if (desc)
+                    html += ` <span style="color: #ffab91;">(${desc})</span>`;
+                return html;
+            };
             // Use global instance list to ensure we check all possibilities 
             // regardless of which layer triggered the event
             for (const inst of instanceInstruments) {
@@ -398,18 +493,7 @@ export default class Instrument {
                     });
                 }
                 if (isActive) {
-                    let name = inst.getSharedVar("dslInstrumentName") || inst._name || inst._baseName;
-                    const mod = inst.getSharedVar("modifierKey");
-                    const synthetic = inst.getSharedVar("syntheticEvent");
-                    const desc = inst.getSharedVar("description");
-                    let html = `<span>${name}</span>`;
-                    if (mod)
-                        html += ` <span style="color: #ce93d8;">[${mod}]</span>`;
-                    if (synthetic)
-                        html += ` <span style="color: #4db6ac;">[${synthetic}]</span>`;
-                    if (desc)
-                        html += ` <span style="color: #ffab91;">(${desc})</span>`;
-                    activeInsts.set(inst, html);
+                    activeInsts.set(inst, buildHudInstrumentHtml(inst));
                 }
                 // Check Candidate
                 // We need to check if this instrument matches the current event context
@@ -483,18 +567,7 @@ export default class Instrument {
                             }
                         }
                         if (isHit) {
-                            let name = inst.getSharedVar("dslInstrumentName") || inst._name || inst._baseName;
-                            const mod = inst.getSharedVar("modifierKey");
-                            const synthetic = inst.getSharedVar("syntheticEvent");
-                            const desc = inst.getSharedVar("description");
-                            let html = `<span>${name}</span>`;
-                            if (mod)
-                                html += ` <span style="color: #ce93d8;">[${mod}]</span>`;
-                            if (synthetic)
-                                html += ` <span style="color: #4db6ac;">[${synthetic}]</span>`;
-                            if (desc)
-                                html += ` <span style="color: #ffab91;">(${desc})</span>`;
-                            candidateInsts.set(inst, html);
+                            candidateInsts.set(inst, buildHudInstrumentHtml(inst));
                         }
                     }
                 });

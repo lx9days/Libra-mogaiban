@@ -10283,6 +10283,94 @@ var init_instrument = __esm({
         if (event === "mousemove" && e instanceof MouseEvent) {
           const activeInsts = new Map();
           const candidateInsts = new Map();
+          const conflictingTriggers = new Set([
+            "click",
+            "brush",
+            "drag",
+            "pan",
+            "brushx",
+            "brushy"
+          ]);
+          const hardConflictLayersByInst = new Map();
+          const softConflictLayersByInst = new Map();
+          const getInstrumentLayers = (inst) => {
+            const layers2 = new Set();
+            inst._layerInteractors.forEach((_, layr) => layers2.add(layr));
+            inst._layers.forEach((layerEntry) => {
+              layers2.add(layerEntry instanceof Layer2 ? layerEntry : layerEntry.layer);
+            });
+            return Array.from(layers2);
+          };
+          const getLayerDisplayName = (layr) => {
+            return layr?._name || layr?._baseName || "unknown-layer";
+          };
+          const hasConflictControl = (inst) => {
+            const sharedVar = inst._sharedVar || {};
+            const userOptions = inst._userOptions || {};
+            return Object.prototype.hasOwnProperty.call(sharedVar, "modifierKey") || Object.prototype.hasOwnProperty.call(sharedVar, "syntheticEvent") || Object.prototype.hasOwnProperty.call(userOptions, "priority");
+          };
+          const addConflictLayer = (map2, inst, layerName) => {
+            if (!map2.has(inst)) {
+              map2.set(inst, new Set());
+            }
+            map2.get(inst)?.add(layerName);
+          };
+          const conflictInstsByLayer = new Map();
+          instanceInstruments.forEach((inst) => {
+            const trigger = inst.getSharedVar("trigger");
+            if (typeof trigger !== "string" || !conflictingTriggers.has(trigger)) {
+              return;
+            }
+            getInstrumentLayers(inst).forEach((layr) => {
+              if (!conflictInstsByLayer.has(layr)) {
+                conflictInstsByLayer.set(layr, []);
+              }
+              conflictInstsByLayer.get(layr)?.push(inst);
+            });
+          });
+          conflictInstsByLayer.forEach((insts, layr) => {
+            if (insts.length < 2)
+              return;
+            const hasUncontrolledInst = insts.some((inst) => !hasConflictControl(inst));
+            if (!hasUncontrolledInst)
+              return;
+            const layerName = getLayerDisplayName(layr);
+            insts.forEach((inst) => {
+              if (hasConflictControl(inst)) {
+                addConflictLayer(softConflictLayersByInst, inst, layerName);
+              } else {
+                addConflictLayer(hardConflictLayersByInst, inst, layerName);
+              }
+            });
+          });
+          const buildHudInstrumentHtml = (inst) => {
+            const name = inst.getSharedVar("dslInstrumentName") || inst._name || inst._baseName;
+            const mod = inst.getSharedVar("modifierKey");
+            const trigger = inst.getSharedVar("trigger");
+            const synthetic = inst.getSharedVar("syntheticEvent");
+            const desc = inst.getSharedVar("description");
+            const hardConflictLayers = Array.from(hardConflictLayersByInst.get(inst) || []);
+            const softConflictLayers = Array.from(softConflictLayersByInst.get(inst) || []);
+            const hasHardConflict = hardConflictLayers.length > 0;
+            const hasSoftConflict = softConflictLayers.length > 0;
+            const labelColor = hasHardConflict ? "#ef5350" : hasSoftConflict ? "#fb8c00" : "";
+            let html = `<span${labelColor ? ` style="color: ${labelColor};"` : ""}>${name}</span>`;
+            if (trigger)
+              html += ` <span style="color: #ffd54f;">{${trigger}}</span>`;
+            if (hasHardConflict) {
+              html += ` <span style="color: #ef5350;">conflict detected on \`${hardConflictLayers.join(", ")}\`</span>`;
+            }
+            if (hasSoftConflict) {
+              html += ` <span style="color: #fb8c00;">potential conflict on \`${softConflictLayers.join(", ")}\`</span>`;
+            }
+            if (mod)
+              html += ` <span style="color: #ce93d8;">[${mod}]</span>`;
+            if (synthetic)
+              html += ` <span style="color: #4db6ac;">[${synthetic}]</span>`;
+            if (desc)
+              html += ` <span style="color: #ffab91;">(${desc})</span>`;
+            return html;
+          };
           for (const inst of instanceInstruments) {
             let isActive = false;
             inst._interactors.forEach((i) => {
@@ -10298,18 +10386,7 @@ var init_instrument = __esm({
               });
             }
             if (isActive) {
-              let name = inst.getSharedVar("dslInstrumentName") || inst._name || inst._baseName;
-              const mod = inst.getSharedVar("modifierKey");
-              const synthetic = inst.getSharedVar("syntheticEvent");
-              const desc = inst.getSharedVar("description");
-              let html = `<span>${name}</span>`;
-              if (mod)
-                html += ` <span style="color: #ce93d8;">[${mod}]</span>`;
-              if (synthetic)
-                html += ` <span style="color: #4db6ac;">[${synthetic}]</span>`;
-              if (desc)
-                html += ` <span style="color: #ffab91;">(${desc})</span>`;
-              activeInsts.set(inst, html);
+              activeInsts.set(inst, buildHudInstrumentHtml(inst));
             }
             inst._layerInteractors.forEach((interactors, layr) => {
               const hasStartInteractor = interactors.some((inter) => inter._state === "start");
@@ -10356,18 +10433,7 @@ var init_instrument = __esm({
                   }
                 }
                 if (isHit) {
-                  let name = inst.getSharedVar("dslInstrumentName") || inst._name || inst._baseName;
-                  const mod = inst.getSharedVar("modifierKey");
-                  const synthetic = inst.getSharedVar("syntheticEvent");
-                  const desc = inst.getSharedVar("description");
-                  let html = `<span>${name}</span>`;
-                  if (mod)
-                    html += ` <span style="color: #ce93d8;">[${mod}]</span>`;
-                  if (synthetic)
-                    html += ` <span style="color: #4db6ac;">[${synthetic}]</span>`;
-                  if (desc)
-                    html += ` <span style="color: #ffab91;">(${desc})</span>`;
-                  candidateInsts.set(inst, html);
+                  candidateInsts.set(inst, buildHudInstrumentHtml(inst));
                 }
               }
             });
